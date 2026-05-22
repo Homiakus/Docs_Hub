@@ -1,0 +1,11 @@
+storage.json
+storage.json.tmp
+data/
+deploy/
+uploads/
+backups/
+*.log
+.env
+*.exe
+minivault-enterprise
+docs-hub
