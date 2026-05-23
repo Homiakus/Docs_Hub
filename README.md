@@ -181,6 +181,9 @@ go run . deploy
 
 Меню умеет:
 
+- автоматически определить путь к бинарю на сервере: текущий executable, `PATH`, локальный `./docs-hub`, `dist/docs-hub-linux-amd64` или стандартный `/opt/docs-hub/docs-hub`;
+- автонастроить деплой на Linux-сервере: создать пользователя `docshub`, рабочие каталоги, установить бинарь, env-файл, systemd unit, watchdog timer и Caddyfile;
+- если TUI запущен без root-прав или на Windows, подготовить deploy-файлы и вывести готовые `sudo`-команды для сервера;
 - настроить название сайта, домен, email Let's Encrypt, пути, порт и admin-пользователя;
 - сгенерировать `deploy/docs-hub.env`, systemd unit, watchdog timer, Caddyfile и deploy compose-файл;
 - проверить `/healthz`, состояние systemd и файл данных;

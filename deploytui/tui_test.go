@@ -30,3 +30,30 @@ func TestRenderFilesIncludesServeModeAndTLSProxy(t *testing.T) {
 		t.Fatalf("caddy config does not proxy the configured domain:\n%s", caddy)
 	}
 }
+
+func TestAutoDetectConfigKeepsCustomBinaryPath(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.BinaryPath = "/srv/docs-hub/custom-docs-hub"
+
+	got := autoDetectConfig(cfg)
+
+	if got.BinaryPath != cfg.BinaryPath {
+		t.Fatalf("custom binary path was overwritten: got %q want %q", got.BinaryPath, cfg.BinaryPath)
+	}
+}
+
+func TestSudoInstallCommandsQuotePaths(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.InstallDir = "/opt/docs hub"
+	cfg.BinaryPath = "/opt/docs hub/docs-hub"
+	cfg.UseCaddy = false
+
+	commands := strings.Join(sudoInstallCommands(cfg), "\n")
+
+	if !strings.Contains(commands, "'/opt/docs hub'") {
+		t.Fatalf("install dir with spaces is not shell-quoted:\n%s", commands)
+	}
+	if !strings.Contains(commands, "'/opt/docs hub/docs-hub'") {
+		t.Fatalf("binary path with spaces is not shell-quoted:\n%s", commands)
+	}
+}
