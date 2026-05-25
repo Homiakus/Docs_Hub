@@ -1,6 +1,7 @@
 package deploytui
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -69,14 +71,19 @@ func Run(out io.Writer) error {
 		err := huh.NewSelect[string]().
 			Title("Что сделать?").
 			Options(
-				huh.NewOption("Автонастроить деплой на этом сервере", "auto-setup"),
-				huh.NewOption("Настроить деплой сайта", "configure"),
-				huh.NewOption("Сгенерировать deploy-файлы", "render"),
-				huh.NewOption("Установить/обновить systemd daemon", "install-systemd"),
-				huh.NewOption("Проверить состояние сервиса", "scan"),
-				huh.NewOption("Перезапустить, если health check не проходит", "restart-if-hung"),
-				huh.NewOption("Настроить Caddy и получить SSL", "ssl"),
-				huh.NewOption("Выход", "quit"),
+				huh.NewOption("🚀 Запустить демо (тестовый режим)", "demo-run"),
+				huh.NewOption("▶️  Быстрый запуск сервера", "run-server"),
+				huh.NewOption("🌐 Открыть сайт в браузере", "open-browser"),
+				huh.NewOption("📊 Мониторинг сайта (live)", "monitor"),
+				huh.NewOption("⚡ Полная автоустановка (всё сразу)", "full-auto-setup"),
+				huh.NewOption("🔧 Автонастроить деплой на этом сервере", "auto-setup"),
+				huh.NewOption("⚙️  Настроить конфигурацию", "configure"),
+				huh.NewOption("📁 Сгенерировать deploy-файлы", "render"),
+				huh.NewOption("📦 Установить systemd сервис", "install-systemd"),
+				huh.NewOption("🔍 Проверить состояние сервиса", "scan"),
+				huh.NewOption("🔄 Перезапустить если завис", "restart-if-hung"),
+				huh.NewOption("🔒 Настроить Caddy SSL", "ssl"),
+				huh.NewOption("🚪 Выход", "quit"),
 			).
 			Value(&action).
 			Run()
@@ -85,6 +92,68 @@ func Run(out io.Writer) error {
 		}
 
 		switch action {
+		case "demo-run":
+			fmt.Fprintln(out, runDemoServer())
+		case "run-server":
+			fmt.Fprintln(out, runForegroundServer(cfg, out))
+		case "open-browser":
+			addr := cfg.ListenAddr
+			if cfg.UseCaddy {
+				addr = "https://" + cfg.Domain
+			} else {
+				addr = "http://" + cfg.ListenAddr
+			}
+			fmt.Fprintf(out, "Открываю %s в браузере...\n", addr)
+			if err := openBrowser(addr); err != nil {
+				fmt.Fprintln(out, "Ошибка открытия браузера:", err)
+			}
+		case "monitor":
+			monitorLive(cfg, out)
+		case "full-auto-setup":
+			var confirmed bool
+			if err := huh.NewConfirm().
+				Title("Это установит Docs Hub как systemd-сервис, настроит Caddy SSL и watchdog. Продолжить?").
+				Value(&confirmed).
+				Run(); err != nil {
+				return err
+			}
+			if !confirmed {
+				fmt.Fprintln(out, "Отменено.")
+				continue
+			}
+			cfg = autoDetectConfig(cfg)
+			if err := saveConfig(cfg); err != nil {
+				return err
+			}
+
+			if runtime.GOOS == "linux" && os.Geteuid() != 0 {
+				fmt.Fprintln(out, "Для полной автоустановки нужны root-права. Запустите на сервере:")
+				for _, cmd := range sudoInstallCommands(cfg) {
+					fmt.Fprintln(out, cmd)
+				}
+				continue
+			}
+
+			if err := writeDeployFiles(cfg); err != nil {
+				fmt.Fprintln(out, "Не удалось сгенерировать deploy-файлы:", err)
+				continue
+			}
+
+			fmt.Fprintln(out, installSystemd(cfg))
+
+			if cfg.UseCaddy {
+				fmt.Fprintln(out, configureSSL(cfg))
+			}
+
+			scanResult := scanState(cfg)
+			fmt.Fprintln(out, scanResult)
+
+			url := "http://" + cfg.ListenAddr + "/healthz"
+			if data, _, err2 := pollHealth(url); err2 == nil && data != nil {
+				fmt.Fprintln(out, "✅ Установка завершена! Сайт доступен.")
+			} else {
+				fmt.Fprintln(out, "⚠️ Сервис установлен, но health check не проходит. Проверьте: systemctl status "+cfg.ServiceName)
+			}
 		case "auto-setup":
 			cfg = autoDetectConfig(cfg)
 			if err := saveConfig(cfg); err != nil {
@@ -137,7 +206,7 @@ func defaultConfig() Config {
 		ListenAddr:    "127.0.0.1:8080",
 		PublicPort:    "443",
 		AdminUser:     "admin",
-		AdminPassword: "change-me-before-first-run",
+		AdminPassword: "admin123",
 		UseCaddy:      true,
 	}
 }
@@ -408,24 +477,57 @@ func quoteEnv(s string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
 }
 
+// scanState performs a health check against the service and returns diagnostic info.
+// Enhanced with /healthz JSON parsing, response time, file size, and backup count.
 func scanState(cfg Config) string {
 	var lines []string
 	lines = append(lines, "Health scan:")
-	if ok, detail := checkHTTP("http://" + cfg.ListenAddr + "/healthz"); ok {
-		lines = append(lines, "  HTTP /healthz: ok - "+detail)
+
+	url := "http://" + cfg.ListenAddr + "/healthz"
+	data, duration, err := pollHealth(url)
+	lines = append(lines, fmt.Sprintf("  Response time: %s", formatDuration(duration)))
+
+	if err != nil {
+		lines = append(lines, "  HTTP /healthz: fail - "+err.Error())
 	} else {
-		lines = append(lines, "  HTTP /healthz: fail - "+detail)
+		lines = append(lines, "  HTTP /healthz: ok (200)")
+		if data != nil {
+			if v, ok := data["version"]; ok {
+				lines = append(lines, fmt.Sprintf("  Version: %v", v))
+			}
+			if v, ok := data["users"]; ok {
+				lines = append(lines, fmt.Sprintf("  Users: %v", v))
+			}
+			if v, ok := data["articles"]; ok {
+				lines = append(lines, fmt.Sprintf("  Articles: %v", v))
+			}
+		}
 	}
-	if out, err := runCommand("systemctl", "is-active", cfg.ServiceName); err == nil {
+
+	if out, err2 := runCommand("systemctl", "is-active", cfg.ServiceName); err2 == nil {
 		lines = append(lines, "  systemd: "+strings.TrimSpace(out))
 	} else {
-		lines = append(lines, "  systemd: unavailable - "+trimErr(out, err))
+		lines = append(lines, "  systemd: unavailable - "+trimErr(out, err2))
 	}
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "storage.json")); err == nil {
-		lines = append(lines, "  storage: ok")
+
+	storagePath := filepath.Join(cfg.DataDir, "storage.json")
+	if info, err2 := os.Stat(storagePath); err2 == nil {
+		lines = append(lines, fmt.Sprintf("  storage: ok (size: %s)", formatSize(info.Size())))
 	} else {
-		lines = append(lines, "  storage: "+err.Error())
+		lines = append(lines, "  storage: "+err2.Error())
 	}
+
+	backupDir := filepath.Join(cfg.DataDir, "backups")
+	if entries, err2 := os.ReadDir(backupDir); err2 == nil {
+		count := 0
+		for _, e := range entries {
+			if !e.IsDir() {
+				count++
+			}
+		}
+		lines = append(lines, fmt.Sprintf("  backups: %d", count))
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -774,6 +876,320 @@ func trimErr(out string, err error) string {
 	}
 	return text
 }
+
+// --------------------------------------------------------------------------
+// New helper functions added for enhanced TUI features
+// --------------------------------------------------------------------------
+
+// openBrowser opens the given URL in the system default browser.
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+}
+
+// pollHealth hits the /healthz JSON endpoint and returns parsed data, response
+// duration, and any error.
+func pollHealth(url string) (map[string]any, time.Duration, error) {
+	start := time.Now()
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, time.Since(start), err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, time.Since(start), fmt.Errorf("HTTP %s", resp.Status)
+	}
+
+	var data map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		// Body might not be valid JSON; return nil data without error
+		return nil, time.Since(start), nil
+	}
+	return data, time.Since(start), nil
+}
+
+// formatDuration returns a human-readable duration string.
+func formatDuration(d time.Duration) string {
+	if d < time.Microsecond {
+		return "0s"
+	}
+	if d < time.Millisecond {
+		return fmt.Sprintf("%.0fµs", float64(d.Microseconds()))
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.0fms", float64(d.Milliseconds()))
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// formatSize returns a human-readable file size string.
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// runDemoServer creates a temporary data directory, starts the HTTP server in
+// demo mode, opens the browser, and blocks until Ctrl+C.
+func runDemoServer() string {
+	tmpDir, err := os.MkdirTemp("", "docs-hub-demo-*")
+	if err != nil {
+		return "Ошибка создания временной папки: " + err.Error()
+	}
+
+	dataFile := filepath.Join(tmpDir, "storage.json")
+
+	exe, err := os.Executable()
+	if err != nil {
+		os.RemoveAll(tmpDir)
+		return "Не удалось найти исполняемый файл: " + err.Error()
+	}
+
+	cmd := exec.Command(exe, "serve")
+	cmd.Env = append(os.Environ(),
+		"DOCS_HUB_MODE=server",
+		"DATA_FILE="+dataFile,
+		"ADDR=:8080",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		os.RemoveAll(tmpDir)
+		return "Не удалось запустить демо-сервер: " + err.Error()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	openBrowser("http://localhost:8080")
+
+	fmt.Println("Демо-сервер запущен на http://localhost:8080. Нажмите Ctrl+C для остановки.")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	<-sigCh
+
+	signal.Stop(sigCh)
+
+	cmd.Process.Kill()
+	cmd.Wait()
+	os.RemoveAll(tmpDir)
+
+	return "Демо остановлен."
+}
+
+// runForegroundServer runs the server in the foreground using the real
+// configuration, opens the browser, and blocks until Ctrl+C.
+func runForegroundServer(cfg Config, out io.Writer) string {
+	cfg = autoDetectConfig(cfg)
+	dataFile := filepath.Join(cfg.DataDir, "storage.json")
+	uploadsDir := filepath.Join(cfg.DataDir, "uploads")
+
+	exe, err := os.Executable()
+	if err != nil {
+		return "Не удалось найти исполняемый файл: " + err.Error()
+	}
+
+	cmd := exec.Command(exe, "serve")
+	cmd.Env = append(os.Environ(),
+		"DOCS_HUB_MODE=server",
+		"DATA_FILE="+dataFile,
+		"ADDR="+cfg.ListenAddr,
+		"UPLOAD_DIR="+uploadsDir,
+		"ADMIN_USER="+cfg.AdminUser,
+		"ADMIN_PASSWORD="+cfg.AdminPassword,
+		"DOCS_HUB_SITE_NAME="+cfg.SiteName,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return "Не удалось запустить сервер: " + err.Error()
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	url := "http://" + cfg.ListenAddr
+	openBrowser(url)
+
+	fmt.Fprintln(out, "Сервер запущен на "+url+". Нажмите Ctrl+C для остановки.")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	<-sigCh
+
+	signal.Stop(sigCh)
+
+	cmd.Process.Kill()
+	cmd.Wait()
+
+	return "Сервер остановлен."
+}
+
+// clearScreen clears the terminal and hides the cursor.
+func clearScreen(out io.Writer) {
+	fmt.Fprint(out, "\033[H\033[2J")
+	fmt.Fprint(out, "\033[?25l")
+}
+
+// renderMonitor draws the live monitoring dashboard.
+func renderMonitor(out io.Writer, start time.Time, status string, data map[string]any, duration time.Duration, lastError string, cfg Config) {
+	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))   // green
+	failStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(1, 2)
+
+	var statusStr string
+	switch status {
+	case "OK":
+		statusStr = okStyle.Render("● OK")
+	case "FAIL":
+		statusStr = failStyle.Render("● FAIL")
+	default:
+		statusStr = dimStyle.Render("● …")
+	}
+
+	var lines []string
+	lines = append(lines, headerStyle.Render("📊 Docs Hub Monitor"))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("  Status:    %s", statusStr))
+	lines = append(lines, fmt.Sprintf("  URL:       http://%s/healthz", cfg.ListenAddr))
+	lines = append(lines, fmt.Sprintf("  Response:  %s", formatDuration(duration)))
+	lines = append(lines, fmt.Sprintf("  Uptime:    %s", formatDuration(time.Since(start))))
+
+	if data != nil {
+		if v, ok := data["version"]; ok {
+			lines = append(lines, fmt.Sprintf("  Version:   %v", v))
+		}
+		if v, ok := data["users"]; ok {
+			lines = append(lines, fmt.Sprintf("  Users:     %v", v))
+		}
+		if v, ok := data["articles"]; ok {
+			lines = append(lines, fmt.Sprintf("  Articles:  %v", v))
+		}
+	}
+
+	if status == "FAIL" {
+		lines = append(lines, "")
+		lines = append(lines, failStyle.Render("⚠️  Сервер не отвечает!"))
+		if lastError != "" {
+			lines = append(lines, dimStyle.Render("  Last error: "+lastError))
+		}
+	}
+
+	// Systemd section
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Systemd:"))
+	if runtime.GOOS == "windows" {
+		lines = append(lines, dimStyle.Render("  systemd: недоступен на Windows"))
+	} else {
+		out2, err := runCommand("systemctl", "status", cfg.ServiceName, "--no-pager", "-l")
+		if err != nil {
+			lines = append(lines, dimStyle.Render("  "+trimErr(out2, err)))
+		} else {
+			systemLines := strings.Split(strings.TrimSpace(out2), "\n")
+			// Show last 5 lines
+			if len(systemLines) > 5 {
+				systemLines = systemLines[len(systemLines)-5:]
+			}
+			for _, l := range systemLines {
+				lines = append(lines, dimStyle.Render("  "+strings.TrimSpace(l)))
+			}
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("Нажмите 'q' + Enter для выхода"))
+
+	fmt.Fprintln(out, box.Render(strings.Join(lines, "\n")))
+}
+
+// monitorLive opens a live-updating dashboard that polls /healthz every 3
+// seconds. Press 'q' + Enter to exit.
+func monitorLive(cfg Config, out io.Writer) {
+	url := "http://" + cfg.ListenAddr + "/healthz"
+
+	keyCh := make(chan byte, 1)
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			if strings.TrimSpace(scanner.Text()) == "q" {
+				keyCh <- 'q'
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	start := time.Now()
+	var lastError string
+	var lastData map[string]any
+	var lastDuration time.Duration
+	var lastStatus string
+
+	// Initial poll
+	{
+		data, d, err := pollHealth(url)
+		lastDuration = d
+		if err != nil {
+			lastStatus = "FAIL"
+			lastError = err.Error()
+		} else {
+			lastStatus = "OK"
+			lastError = ""
+			lastData = data
+		}
+		clearScreen(out)
+		renderMonitor(out, start, lastStatus, lastData, lastDuration, lastError, cfg)
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			data, d, err := pollHealth(url)
+			lastDuration = d
+			if err != nil {
+				lastStatus = "FAIL"
+				lastError = err.Error()
+			} else {
+				lastStatus = "OK"
+				lastError = ""
+				lastData = data
+			}
+			clearScreen(out)
+			renderMonitor(out, start, lastStatus, lastData, lastDuration, lastError, cfg)
+		case <-keyCh:
+			fmt.Fprint(out, "\033[?25h") // show cursor
+			return
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// Templates
+// --------------------------------------------------------------------------
 
 const envTemplate = `ADDR={{ envq .ListenAddr }}
 DATA_FILE={{ envq .DataFile }}

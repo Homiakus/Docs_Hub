@@ -10,7 +10,7 @@ WorkingDirectory=/opt/docs-hub
 Environment=ADDR=127.0.0.1:8080
 Environment=DATA_FILE=/var/lib/docs-hub/storage.json
 Environment=ADMIN_USER=admin
-Environment=ADMIN_PASSWORD=change-me-before-first-run
+Environment=ADMIN_PASSWORD=admin123
 Environment=DOCS_HUB_MODE=server
 ExecStart=/opt/docs-hub/docs-hub serve
 Restart=on-failure

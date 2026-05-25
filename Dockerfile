@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY main.go ./
 COPY deploytui ./deploytui
+COPY static ./static
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /docs-hub .
 
 FROM alpine:3.20

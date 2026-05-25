@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"html"
 	"html/template"
 	"io"
+	"io/fs"
 	"log"
 	"mime"
 	"mime/multipart"
@@ -22,8 +24,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +38,9 @@ import (
 
 	"docs-hub/deploytui"
 )
+
+//go:embed static/*
+var staticFiles embed.FS
 
 const (
 	AppName            = "Docs Hub"
@@ -192,6 +200,14 @@ type RibbonArticle struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "demo" {
+		runDemoQuick()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--reset-admin" {
+		resetAdminPassword()
+		return
+	}
 	if shouldOpenDeployMenu() {
 		if err := deploytui.Run(os.Stdout); err != nil {
 			log.Fatal(err)
@@ -209,9 +225,11 @@ func shouldOpenDeployMenu() bool {
 		case "deploy", "menu", "tui", "--tui":
 			return true
 		case "-h", "--help", "help":
-			fmt.Println("Usage: docs-hub [serve|deploy]")
-			fmt.Println("  serve   run the HTTP service")
-			fmt.Println("  deploy  open the deployment TUI")
+			fmt.Println("Usage: docs-hub [serve|deploy|demo|--reset-admin]")
+			fmt.Println("  serve         run the HTTP service")
+			fmt.Println("  deploy        open the deployment TUI")
+			fmt.Println("  demo          run a quick demo server with temp data")
+			fmt.Println("  --reset-admin reset admin password to admin123")
 			os.Exit(0)
 		}
 	}
@@ -227,6 +245,95 @@ func isTerminal(file *os.File) bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
+}
+
+func runDemoQuick() {
+	dir, err := os.MkdirTemp("", "docs-hub-demo-*")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	dataFile := filepath.Join(dir, "storage.json")
+	os.Setenv("DATA_FILE", dataFile)
+	os.Setenv("DOCS_HUB_MODE", "server")
+	addr := getenv("ADDR", ":8080")
+	store, err := LoadStore(dataFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	app := NewApp(store)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		openBrowserGo("http://localhost" + addr)
+	}()
+	go func() {
+		log.Printf("Демо-сервер %s запущен на http://localhost%s", AppName, addr)
+		log.Printf("Временные данные: %s", dir)
+		log.Printf("Нажмите Ctrl+C для остановки.")
+		if err := http.ListenAndServe(addr, app.routes()); err != nil {
+			log.Fatal(err)
+		}
+	}()
+	<-sigCh
+	log.Printf("Демо-сервер остановлен. Временные данные удалены.")
+}
+
+func openBrowserGo(url string) {
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		cmd = "open"
+		args = []string{url}
+	default:
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+	_ = exec.Command(cmd, args...).Start()
+}
+
+func resetAdminPassword() {
+	dataFile := getenv("DATA_FILE", "storage.json")
+	newPass := getenv("ADMIN_PASSWORD", "admin123")
+	adminUser := getenv("ADMIN_USER", "admin")
+	store, err := LoadStore(dataFile)
+	if err != nil {
+		log.Fatalf("не удалось загрузить %s: %v", dataFile, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var admin *User
+	for _, u := range store.db.Users {
+		if strings.EqualFold(u.Username, adminUser) || u.ID == "1" {
+			admin = u
+			break
+		}
+	}
+	if admin == nil {
+		log.Fatalf("администратор не найден в %s", dataFile)
+	}
+	salt, hash, err := HashPassword(newPass)
+	if err != nil {
+		log.Fatalf("ошибка хеширования пароля: %v", err)
+	}
+	admin.SaltHex = salt
+	admin.PasswordHash = hash
+	admin.UpdatedAt = time.Now().UTC()
+	for sid, sess := range store.db.Sessions {
+		if sess.UserID == admin.ID {
+			delete(store.db.Sessions, sid)
+		}
+	}
+	if err := store.saveLocked(); err != nil {
+		log.Fatalf("ошибка сохранения: %v", err)
+	}
+	fmt.Printf("Пароль администратора %q сброшен на %q\n", admin.Username, newPass)
+	fmt.Println("Все сессии сброшены. Теперь можно войти.")
 }
 
 func runServer() {
@@ -247,6 +354,8 @@ func NewApp(store *Store) *App {
 
 func (app *App) routes() http.Handler {
 	mux := http.NewServeMux()
+	staticFS, _ := fs.Sub(staticFiles, "static")
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	mux.HandleFunc("/login", app.login)
 	mux.HandleFunc("/logout", app.requireAuth(app.logout))
 	mux.HandleFunc("/healthz", app.healthz)
@@ -274,9 +383,11 @@ func (app *App) routes() http.Handler {
 	mux.HandleFunc("/attachments/drop", app.requireAdmin(app.attachmentDrop))
 	mux.HandleFunc("/attachments/delete", app.requireAdmin(app.attachmentDelete))
 	mux.HandleFunc("/files/", app.requireAuth(app.attachmentServe))
+	mux.HandleFunc("/model-assets/", app.requireAuth(app.modelAssetServe))
 	mux.HandleFunc("/admin/backups", app.requireAdmin(app.adminBackups))
 	mux.HandleFunc("/admin/backups/create", app.requireAdmin(app.adminBackupCreate))
 	mux.HandleFunc("/admin/backups/download/", app.requireAdmin(app.adminBackupDownload))
+	mux.HandleFunc("/admin/backups/delete", app.requireAdmin(app.adminBackupDelete))
 	return securityHeaders(mux)
 }
 
@@ -481,7 +592,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' https: blob:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; style-src 'self' 'unsafe-inline' https://uicdn.toast.com; script-src 'self' 'unsafe-inline' https://esm.sh https://uicdn.toast.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' https: blob:; connect-src 'self' https: blob:; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src https://www.youtube-nocookie.com https://www.youtube.com; style-src 'self' 'unsafe-inline' https://uicdn.toast.com https://cdn.plyr.io; script-src 'self' 'unsafe-inline' https://esm.sh https://uicdn.toast.com https://cdn.jsdelivr.net https://cdn.plyr.io https://unpkg.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -565,7 +676,8 @@ func (app *App) createSession(w http.ResponseWriter, r *http.Request, userID str
 	if err := app.store.saveLocked(); err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: sid + "." + token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: r.TLS != nil, MaxAge: int(SessionTTL.Seconds())})
+	isSecure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	http.SetCookie(w, &http.Cookie{Name: SessionCookie, Value: sid + "." + token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: isSecure, MaxAge: int(SessionTTL.Seconds())})
 	return nil
 }
 
@@ -596,6 +708,15 @@ func (app *App) auditLocked(r *http.Request, actorID, action, target string) {
 	}
 }
 func clientIP(r *http.Request) string {
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		if i := strings.IndexByte(fwd, ','); i >= 0 {
+			return strings.TrimSpace(fwd[:i])
+		}
+		return strings.TrimSpace(fwd)
+	}
+	if real := r.Header.Get("X-Real-IP"); real != "" {
+		return strings.TrimSpace(real)
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil && host != "" {
 		return host
@@ -655,6 +776,15 @@ func (app *App) login(w http.ResponseWriter, r *http.Request) {
 	app.store.mu.RUnlock()
 	if found == nil || !found.Active || !VerifyPassword(password, found.SaltHex, found.PasswordHash) {
 		app.limiter.recordFail(key, app.now())
+		reason := ""
+		if found == nil {
+			reason = "пользователь не найден"
+		} else if !found.Active {
+			reason = "пользователь отключён"
+		} else {
+			reason = "неверный пароль"
+		}
+		log.Printf("login failed: user=%q ip=%s reason=%s", username, clientIP(r), reason)
 		app.render(w, r, "Вход", nil, nil, loginBody("Неверный логин или пароль."))
 		return
 	}
@@ -703,12 +833,15 @@ func (app *App) home(w http.ResponseWriter, r *http.Request, ctx *RequestContext
 		sort.Slice(articles, func(i, j int) bool { return articles[i].UpdatedAt.After(articles[j].UpdatedAt) })
 	}
 	var b strings.Builder
-	b.WriteString(`<section class="hero"><div><h1>Ваш серверный Obsidian</h1><p>Markdown, ACL, Toast UI Editor, вложения, backups, миграции и полнотекстовый поиск.</p></div><div class="hero-stat"><b>` + strconv.Itoa(len(articles)) + `</b><span>доступных статей</span></div></section>`)
+	b.WriteString(`<section class="workspace-head"><div><p class="eyebrow">База знаний</p><h1>Статьи</h1><p class="muted">Документы, вложения, медиа, PDF и 3D-модели в одном приватном пространстве.</p></div><dl class="workspace-stats"><div><dt>` + strconv.Itoa(len(articles)) + `</dt><dd>доступных статей</dd></div><div><dt>` + strconv.Itoa(len(tagCount)) + `</dt><dd>тегов</dd></div></dl></section>`)
 	b.WriteString(`<div class="toolbar"><form class="search" method="get"><input name="q" value="` + html.EscapeString(q) + `" placeholder="Поиск по доступным статьям..."><button class="secondary">Найти</button></form>`)
 	if ctx.User.Role == RoleAdmin {
-		b.WriteString(`<a class="button primary" href="/edit/new">+ Новая</a><a class="button secondary" href="/admin/users">Пользователи</a><a class="button secondary" href="/admin/groups">Группы</a><a class="button secondary" href="/admin/audit">Аудит</a>`)
+		b.WriteString(`<a class="button primary" href="/edit/new">Новая статья</a><a class="button secondary" href="/admin/users">Пользователи</a><a class="button secondary" href="/admin/groups">Группы</a><a class="button secondary" href="/admin/audit">Аудит</a>`)
 	}
 	b.WriteString(`</div>`)
+	if q != "" || tag != "" {
+		b.WriteString(`<p class="muted">Найдено: ` + strconv.Itoa(len(articles)) + `</p>`)
+	}
 	if len(tagCount) > 0 {
 		keys := []string{}
 		for k := range tagCount {
@@ -732,9 +865,9 @@ func (app *App) home(w http.ResponseWriter, r *http.Request, ctx *RequestContext
 		}
 		b.WriteString(`</div>`)
 		if a.AllUsers {
-			b.WriteString(`<span class="badge">all users</span>`)
+			b.WriteString(`<span class="badge">для всех</span>`)
 		} else {
-			b.WriteString(`<span class="badge private">restricted</span>`)
+			b.WriteString(`<span class="badge private">ограничен</span>`)
 		}
 		b.WriteString(`</a>`)
 	}
@@ -783,7 +916,7 @@ func (app *App) articleView(w http.ResponseWriter, r *http.Request, ctx *Request
 		return
 	}
 	var b strings.Builder
-	b.WriteString(`<article class="article-layout"><main class="card article"><div class="article-top"><div><h1>` + html.EscapeString(article.Title) + `</h1><p class="muted">/` + html.EscapeString(article.Slug) + `</p></div>`)
+	b.WriteString(`<article class="article-layout"><main class="article"><div class="article-top"><div><h1>` + html.EscapeString(article.Title) + `</h1><p class="muted">/` + html.EscapeString(article.Slug) + `</p></div>`)
 	if ctx.User.Role == RoleAdmin {
 		b.WriteString(`<a class="button primary" href="/edit/` + html.EscapeString(article.ID) + `">Редактировать</a>`)
 	}
@@ -791,12 +924,13 @@ func (app *App) articleView(w http.ResponseWriter, r *http.Request, ctx *Request
 	for _, t := range article.Tags {
 		b.WriteString(`<a href="/?tag=` + html.EscapeString(t) + `">#` + html.EscapeString(t) + `</a>`)
 	}
-	b.WriteString(`</div><div class="markdown">` + string(RenderMarkdown(article.Content)) + `</div></main><aside class="side card"><h3>Вложения</h3>`)
+	b.WriteString(`</div><div class="markdown">` + string(RenderMarkdown(article.Content)) + `</div></main><aside class="side"><h3>Вложения</h3>`)
 	if len(attachments) == 0 {
 		b.WriteString(`<p class="muted">Нет вложений.</p>`)
 	} else {
 		for _, f := range attachments {
-			b.WriteString(`<a class="side-link" href="/files/` + html.EscapeString(f.ID) + `/` + html.EscapeString(f.OriginalName) + `">📎 ` + html.EscapeString(f.OriginalName) + `<br><span class="muted">` + html.EscapeString(humanBytes(f.Size)) + ` · ` + html.EscapeString(f.MIME) + `</span></a>`)
+			link := attachmentFileURL(f)
+			b.WriteString(`<a class="side-link attachment-link" href="` + html.EscapeString(link) + `"><span class="file-kind">` + html.EscapeString(attachmentKind(f)) + `</span><span>` + html.EscapeString(f.OriginalName) + `<br><span class="muted">` + html.EscapeString(humanBytes(f.Size)) + ` · ` + html.EscapeString(f.MIME) + `</span></span></a>`)
 		}
 	}
 	b.WriteString(`<h3>Backlinks</h3>`)
@@ -886,11 +1020,12 @@ func (app *App) articleEdit(w http.ResponseWriter, r *http.Request, ctx *Request
 	allowedUsers := set(a.AllowedUserIDs)
 	allowedGroups := set(a.AllowedGroupIDs)
 	var b strings.Builder
-	b.WriteString(`<form method="post" action="/save" id="editorForm"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(a.ID) + `"><section class="editor-meta card"><label>Название<input name="title" value="` + html.EscapeString(a.Title) + `" required></label><label>Slug<input name="slug" value="` + html.EscapeString(a.Slug) + `" placeholder="primer-stati"></label><label>Теги через запятую<input name="tags" value="` + html.EscapeString(strings.Join(a.Tags, ", ")) + `" placeholder="go, docs, internal"></label><label class="check"><input type="checkbox" name="all_users" value="1" ` + checked(a.AllUsers) + `> Доступна всем авторизованным</label><details open><summary>Доступ пользователям</summary><div class="checks">`)
+	b.WriteString(`<form method="post" action="/save" id="editorForm"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(a.ID) + `"><section class="editor-meta card"><label>Название<input name="title" value="` + html.EscapeString(a.Title) + `" required></label><label>Slug<input name="slug" value="` + html.EscapeString(a.Slug) + `" placeholder="primer-stati"></label><label>Теги через запятую<input name="tags" value="` + html.EscapeString(strings.Join(a.Tags, ", ")) + `" placeholder="go, docs, internal"></label><label class="check"><input type="checkbox" name="all_users" value="1" ` + checked(a.AllUsers) + `> Доступна всем авторизованным</label>`)
+	b.WriteString(`<details open><summary>Доступ пользователям (` + strconv.Itoa(len(allowedUsers)) + ` из ` + strconv.Itoa(len(users)) + `)</summary><div class="checks">`)
 	for _, u := range users {
 		b.WriteString(`<label class="check"><input type="checkbox" name="allowed_users" value="` + html.EscapeString(u.ID) + `" ` + checked(allowedUsers[u.ID]) + `> ` + html.EscapeString(u.Username) + `</label>`)
 	}
-	b.WriteString(`</div></details><details open><summary>Доступ группам</summary><div class="checks">`)
+	b.WriteString(`</div></details><details open><summary>Доступ группам (` + strconv.Itoa(len(allowedGroups)) + ` из ` + strconv.Itoa(len(groups)) + `)</summary><div class="checks">`)
 	for _, g := range groups {
 		b.WriteString(`<label class="check"><input type="checkbox" name="allowed_groups" value="` + html.EscapeString(g.ID) + `" ` + checked(allowedGroups[g.ID]) + `> ` + html.EscapeString(g.Name) + `</label>`)
 	}
@@ -898,16 +1033,22 @@ func (app *App) articleEdit(w http.ResponseWriter, r *http.Request, ctx *Request
 	if a.ID != "" {
 		b.WriteString(`<button class="danger" type="submit" form="archiveForm">В архив</button>`)
 	}
-	b.WriteString(`</div></section><section class="editor-toolbar card"><button type="button" class="secondary" onclick="insertWikiLink()">[[link]]</button><button type="button" class="secondary" onclick="insertVideoLink()">Видео/YouTube</button><span class="muted">WYSIWYG Markdown · media resize · GFM tables</span><span id="previewStatus" class="editor-status">загрузка</span></section><section class="live-editor-shell card" data-article-id="` + html.EscapeString(a.ID) + `"><textarea id="md" name="content" class="hidden-textarea" spellcheck="false">` + html.EscapeString(a.Content) + `</textarea><div id="toastEditor" class="toast-editor-host"></div><div id="dropHint" class="drop-hint">Отпустите файл, чтобы загрузить и вставить в статью</div></section></form>`)
+	b.WriteString(`</div></section><section class="editor-toolbar card"><button type="button" class="secondary" onclick="insertWikiLink()">[[link]]</button><button type="button" class="secondary" onclick="insertVideoLink()">Видео/YouTube</button><button type="button" class="secondary" id="btnSourceMode" onclick="toggleSourceMode()" title="Исходный Markdown">&lt;/&gt;</button><button type="button" class="secondary" id="btnFocusMode" onclick="toggleFocusMode()" title="Режим фокусировки">Фокус</button><span class="editor-info-bar"><span id="wordCount">0 слов</span><span id="readTime">0 мин</span></span><span id="previewStatus" class="editor-status">live</span></section><section class="live-editor-shell card" data-article-id="` + html.EscapeString(a.ID) + `"><textarea id="md" name="content" class="hidden-textarea" spellcheck="false">` + html.EscapeString(a.Content) + `</textarea><div id="toastEditor" class="toast-editor-host"></div><div id="dropHint" class="drop-hint">Отпустите файл, чтобы загрузить и вставить в статью</div></section></form>`)
 	if a.ID != "" {
-		b.WriteString(`<section class="card attachments-admin"><h2>Вложения</h2><form method="post" action="/attachments/upload" enctype="multipart/form-data" class="inline-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="article_id" value="` + html.EscapeString(a.ID) + `"><label>Файл<input type="file" name="file" required></label><button class="primary">Загрузить</button></form>`)
+		b.WriteString(`<section class="card attachments-admin"><h2>Вложения</h2><form method="post" action="/attachments/upload" enctype="multipart/form-data" class="inline-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="article_id" value="` + html.EscapeString(a.ID) + `"><label>Файл<input type="file" name="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.txt,.md,.csv,.json,.zip,.docx,.xlsx,.pptx,.mp3,.wav,.ogg,.m4a,.mp4,.webm,.mov,.glb,.gltf,.bin" required></label><button class="primary">Загрузить</button></form>`)
 		if len(attachments) == 0 {
 			b.WriteString(`<p class="muted">Файлов пока нет.</p>`)
 		} else {
 			b.WriteString(`<table><thead><tr><th>Файл</th><th>Размер</th><th>Markdown</th><th></th></tr></thead><tbody>`)
 			for _, f := range attachments {
-				link := `/files/` + html.EscapeString(f.ID) + `/` + html.EscapeString(f.OriginalName)
-				b.WriteString(`<tr><td><a href="` + link + `">` + html.EscapeString(f.OriginalName) + `</a><br><span class="muted">` + html.EscapeString(f.MIME) + `</span></td><td>` + html.EscapeString(humanBytes(f.Size)) + `</td><td><code>[` + html.EscapeString(f.OriginalName) + `](` + link + `)</code></td><td><form method="post" action="/attachments/delete"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(f.ID) + `"><button class="danger">Удалить</button></form></td></tr>`)
+				link := attachmentFileURL(f)
+				linkEsc := html.EscapeString(link)
+				markdown := attachmentMarkdown(f, attachmentEmbedURL(f))
+				b.WriteString(`<tr><td>`)
+				if strings.HasPrefix(f.MIME, "image/") {
+					b.WriteString(`<img class="attachment-thumb" src="` + linkEsc + `" loading="lazy" alt="">`)
+				}
+				b.WriteString(`<a href="` + linkEsc + `">` + html.EscapeString(f.OriginalName) + `</a><br><span class="muted">` + html.EscapeString(attachmentKind(f)) + ` · ` + html.EscapeString(f.MIME) + `</span></td><td>` + html.EscapeString(humanBytes(f.Size)) + `</td><td><code>` + html.EscapeString(markdown) + `</code></td><td><form method="post" action="/attachments/delete" onsubmit="return confirm('Удалить файл?')"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(f.ID) + `"><button class="danger">Удалить</button></form></td></tr>`)
 			}
 			b.WriteString(`</tbody></table>`)
 		}
@@ -973,7 +1114,7 @@ type markdownImportResult struct {
 func (app *App) adminImport(w http.ResponseWriter, r *http.Request, ctx *RequestContext) {
 	if r.Method == http.MethodGet {
 		var b strings.Builder
-		b.WriteString(`<section class="card"><h1>Импорт Markdown</h1><p class="muted">Выберите папку: все .md файлы из неё и подпапок будут загружены как отдельные закрытые статьи.</p><form method="post" action="/admin/import" enctype="multipart/form-data" class="inline-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><label>Папка<input type="file" name="files" multiple webkitdirectory accept=".md,text/markdown,text/plain" required></label><button class="primary">Импортировать</button></form></section>`)
+		b.WriteString(`<section class="card"><h1>Импорт Markdown</h1><p class="muted">Выберите папку: все .md файлы из неё и подпапок будут загружены как отдельные статьи с доступом для всех авторизованных.</p><form method="post" action="/admin/import" enctype="multipart/form-data" class="inline-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><label>Папка<input type="file" name="files" multiple webkitdirectory accept=".md,text/markdown,text/plain" required></label><button class="primary">Импортировать</button></form></section>`)
 		app.render(w, r, "Импорт Markdown", ctx.User, ctx.Session, template.HTML(b.String()))
 		return
 	}
@@ -1094,7 +1235,7 @@ func (app *App) createImportedArticles(r *http.Request, ctx *RequestContext, imp
 			Slug:            slug,
 			Content:         in.Content,
 			Tags:            in.Tags,
-			AllUsers:        false,
+			AllUsers:        true,
 			AllowedUserIDs:  []string{},
 			AllowedGroupIDs: []string{},
 			OwnerID:         ctx.User.ID,
@@ -1289,9 +1430,9 @@ func (app *App) adminUsersBody(ctx *RequestContext, msg string) template.HTML {
 	for _, u := range users {
 		b.WriteString(`<tr><td>` + html.EscapeString(u.ID) + `</td><td>` + html.EscapeString(u.Username) + `</td><td>` + html.EscapeString(string(u.Role)) + `</td><td>`)
 		if u.Active {
-			b.WriteString(`<span class="badge">active</span>`)
+			b.WriteString(`<span class="badge">активен</span>`)
 		} else {
-			b.WriteString(`<span class="badge private">disabled</span>`)
+			b.WriteString(`<span class="badge private">отключён</span>`)
 		}
 		b.WriteString(`</td><td><form method="post" action="/admin/users/password" class="mini-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(u.ID) + `"><input name="password" placeholder="новый пароль" required><button>Сменить</button></form></td><td><form method="post" action="/admin/users/toggle"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="id" value="` + html.EscapeString(u.ID) + `"><button class="secondary">`)
 		if u.Active {
@@ -1452,7 +1593,7 @@ func (app *App) adminGroupsBody(ctx *RequestContext, msg string) template.HTML {
 		for _, u := range users {
 			b.WriteString(`<label class="check"><input type="checkbox" name="members" value="` + html.EscapeString(u.ID) + `" ` + checked(members[u.ID]) + `> ` + html.EscapeString(u.Username) + `</label>`)
 		}
-		b.WriteString(`</div><div class="actions"><button class="primary">Сохранить</button><button class="danger" formaction="/admin/groups/delete">Удалить</button></div></form></section>`)
+		b.WriteString(`</div><div class="actions"><button class="primary">Сохранить</button><button class="danger" formaction="/admin/groups/delete" onclick="return confirm('Удалить группу? Это также удалит её из ACL всех статей.')">Удалить</button></div></form></section>`)
 	}
 	b.WriteString(`<section class="card"><h2>Новая группа</h2><form method="post" action="/admin/groups/save" class="inline-form"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><label>Название<input name="name" required></label><button class="primary">Создать</button></form></section>`)
 	return template.HTML(b.String())
@@ -1611,9 +1752,32 @@ func (app *App) adminAudit(w http.ResponseWriter, r *http.Request, ctx *RequestC
 	}
 	app.store.mu.RUnlock()
 	sort.Slice(events, func(i, j int) bool { return events[i].At.After(events[j].At) })
-	var b strings.Builder
-	b.WriteString(`<section class="card"><h1>Аудит</h1><table><thead><tr><th>Время</th><th>Кто</th><th>Действие</th><th>Цель</th><th>IP</th></tr></thead><tbody>`)
+	filter := strings.TrimSpace(r.URL.Query().Get("action"))
+	actionSet := map[string]bool{}
 	for _, e := range events {
+		actionSet[e.Action] = true
+	}
+	actions := []string{}
+	for a := range actionSet {
+		actions = append(actions, a)
+	}
+	sort.Strings(actions)
+	var b strings.Builder
+	b.WriteString(`<section class="card"><h1>Аудит</h1>`)
+	b.WriteString(`<form class="inline-form" style="margin-bottom:14px"><select name="action" onchange="this.form.submit()"><option value="">Все действия</option>`)
+	for _, a := range actions {
+		sel := ""
+		if a == filter {
+			sel = " selected"
+		}
+		b.WriteString(`<option value="` + html.EscapeString(a) + `"` + sel + `>` + html.EscapeString(a) + `</option>`)
+	}
+	b.WriteString(`</select></form>`)
+	b.WriteString(`<table><thead><tr><th>Время</th><th>Кто</th><th>Действие</th><th>Цель</th><th>IP</th></tr></thead><tbody>`)
+	for _, e := range events {
+		if filter != "" && e.Action != filter {
+			continue
+		}
 		b.WriteString(`<tr><td>` + html.EscapeString(e.At.Format("2006-01-02 15:04:05")) + `</td><td>` + html.EscapeString(users[e.ActorID]) + `</td><td>` + html.EscapeString(e.Action) + `</td><td>` + html.EscapeString(e.Target) + `</td><td>` + html.EscapeString(e.RemoteIP) + `</td></tr>`)
 	}
 	b.WriteString(`</tbody></table></section>`)
@@ -1675,15 +1839,17 @@ func (app *App) attachmentDrop(w http.ResponseWriter, r *http.Request, ctx *Requ
 		http.Error(w, msg, status)
 		return
 	}
-	url := "/files/" + att.ID + "/" + att.OriginalName
+	fileURL := attachmentFileURL(att)
+	embedURL := attachmentEmbedURL(att)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"id":       att.ID,
-		"name":     att.OriginalName,
-		"url":      url,
-		"mime":     att.MIME,
-		"markdown": attachmentMarkdown(att, url),
-		"html":     attachmentHTML(att, url),
+		"id":        att.ID,
+		"name":      att.OriginalName,
+		"url":       fileURL,
+		"embed_url": embedURL,
+		"mime":      att.MIME,
+		"markdown":  attachmentMarkdown(att, embedURL),
+		"html":      attachmentHTML(att, embedURL),
 	})
 }
 
@@ -1702,10 +1868,7 @@ func (app *App) saveUploadedAttachment(r *http.Request, ctx *RequestContext, art
 	buf := make([]byte, 512)
 	n, _ := io.ReadFull(file, buf)
 	buf = buf[:n]
-	mimeType := http.DetectContentType(buf)
-	if m := mime.TypeByExtension(ext); m != "" && mimeType == "application/octet-stream" {
-		mimeType = strings.Split(m, ";")[0]
-	}
+	mimeType := uploadMIME(ext, http.DetectContentType(buf))
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return nil, http.StatusInternalServerError, err.Error()
 	}
@@ -1806,13 +1969,72 @@ func (app *App) attachmentServe(w http.ResponseWriter, r *http.Request, ctx *Req
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", copyAtt.MIME)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if isInlineSafe(copyAtt.MIME) {
-		w.Header().Set("Content-Disposition", `inline; filename="`+escapeHeaderFilename(copyAtt.OriginalName)+`"`)
-	} else {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+escapeHeaderFilename(copyAtt.OriginalName)+`"`)
+	app.serveAttachmentFile(w, r, &copyAtt, path, false)
+}
+
+func (app *App) modelAssetServe(w http.ResponseWriter, r *http.Request, ctx *RequestContext) {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/model-assets/"), "/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
 	}
+	id, requestedName, _ := strings.Cut(rest, "/")
+	id, _ = url.PathUnescape(id)
+	requestedName, _ = url.PathUnescape(requestedName)
+	requestedBase := filepath.Base(strings.ReplaceAll(requestedName, "\\", "/"))
+
+	app.store.mu.RLock()
+	base := app.store.db.Attachments[id]
+	if base == nil {
+		app.store.mu.RUnlock()
+		http.NotFound(w, r)
+		return
+	}
+	article := app.store.db.Articles[base.ArticleID]
+	can := article != nil && !article.Archived && CanRead(ctx.User, article, app.store.db.Groups)
+	target := base
+	if requestedBase != "" && requestedBase != base.OriginalName {
+		target = nil
+		for _, at := range app.store.db.Attachments {
+			if at.ArticleID != base.ArticleID {
+				continue
+			}
+			if at.OriginalName == requestedName || at.OriginalName == requestedBase {
+				target = at
+				break
+			}
+		}
+	}
+	var copyAtt Attachment
+	var path string
+	if target != nil {
+		copyAtt = *target
+		path = filepath.Join(app.store.uploadsDir(), copyAtt.StoredName)
+	}
+	app.store.mu.RUnlock()
+	if !can || target == nil {
+		http.NotFound(w, r)
+		return
+	}
+	app.serveAttachmentFile(w, r, &copyAtt, path, true)
+}
+
+func (app *App) serveAttachmentFile(w http.ResponseWriter, r *http.Request, att *Attachment, path string, forceInline bool) {
+	if att == nil {
+		http.NotFound(w, r)
+		return
+	}
+	mimeType := att.MIME
+	if mimeType == "" {
+		mimeType = uploadMIME(strings.ToLower(filepath.Ext(att.OriginalName)), "application/octet-stream")
+	}
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	disposition := "attachment"
+	if forceInline || isInlineSafe(mimeType) {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+escapeHeaderFilename(att.OriginalName)+`"`)
 	http.ServeFile(w, r, path)
 }
 
@@ -1836,15 +2058,15 @@ func (app *App) adminBackups(w http.ResponseWriter, r *http.Request, ctx *Reques
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].mod.After(items[j].mod) })
 	var b strings.Builder
-	b.WriteString(`<section class="card"><h1>Резервные копии</h1><p class="muted">Backup включает storage.json и каталог uploads. Храните копии вне сервера.</p><form method="post" action="/admin/backups/create"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><button class="primary">Создать backup</button></form></section><section class="card"><table><thead><tr><th>Файл</th><th>Размер</th><th>Дата</th></tr></thead><tbody>`)
+	b.WriteString(`<section class="card"><h1>Резервные копии</h1><p class="muted">Резервная копия включает storage.json и каталог uploads. Храните копии вне сервера.</p><form method="post" action="/admin/backups/create"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><button class="primary">Создать резервную копию</button></form></section><section class="card"><table><thead><tr><th>Файл</th><th>Размер</th><th>Дата</th><th></th></tr></thead><tbody>`)
 	for _, it := range items {
-		b.WriteString(`<tr><td><a href="/admin/backups/download/` + html.EscapeString(it.name) + `">` + html.EscapeString(it.name) + `</a></td><td>` + html.EscapeString(humanBytes(it.size)) + `</td><td>` + html.EscapeString(it.mod.Format("2006-01-02 15:04:05")) + `</td></tr>`)
+		b.WriteString(`<tr><td><a href="/admin/backups/download/` + html.EscapeString(it.name) + `">` + html.EscapeString(it.name) + `</a></td><td>` + html.EscapeString(humanBytes(it.size)) + `</td><td>` + html.EscapeString(it.mod.Format("2006-01-02 15:04:05")) + `</td><td><form method="post" action="/admin/backups/delete" onsubmit="return confirm('Удалить резервную копию?')"><input type="hidden" name="csrf" value="` + html.EscapeString(ctx.Session.CSRFToken) + `"><input type="hidden" name="name" value="` + html.EscapeString(it.name) + `"><button class="danger">Удалить</button></form></td></tr>`)
 	}
 	if len(items) == 0 {
-		b.WriteString(`<tr><td colspan="3" class="muted">Пока нет резервных копий.</td></tr>`)
+		b.WriteString(`<tr><td colspan="4" class="muted">Пока нет резервных копий.</td></tr>`)
 	}
 	b.WriteString(`</tbody></table></section>`)
-	app.render(w, r, "Backups", ctx.User, ctx.Session, template.HTML(b.String()))
+	app.render(w, r, "Резервные копии", ctx.User, ctx.Session, template.HTML(b.String()))
 }
 
 func (app *App) adminBackupCreate(w http.ResponseWriter, r *http.Request, ctx *RequestContext) {
@@ -1852,12 +2074,12 @@ func (app *App) adminBackupCreate(w http.ResponseWriter, r *http.Request, ctx *R
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	name, err := app.createBackup(r, ctx)
+	_, err := app.createBackup(r, ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin/backups/download/"+name, http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/backups", http.StatusSeeOther)
 }
 
 func (app *App) adminBackupDownload(w http.ResponseWriter, r *http.Request, ctx *RequestContext) {
@@ -1870,6 +2092,28 @@ func (app *App) adminBackupDownload(w http.ResponseWriter, r *http.Request, ctx 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+escapeHeaderFilename(name)+`"`)
 	http.ServeFile(w, r, path)
+}
+
+func (app *App) adminBackupDelete(w http.ResponseWriter, r *http.Request, ctx *RequestContext) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	name := safeFileName(strings.TrimSpace(r.FormValue("name")))
+	if name == "" || !strings.HasSuffix(name, ".zip") {
+		http.Error(w, "неверное имя файла", http.StatusBadRequest)
+		return
+	}
+	path := filepath.Join(app.store.backupsDir(), name)
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	app.store.mu.Lock()
+	app.auditLocked(r, ctx.User.ID, "backup.delete", "backup:"+name)
+	_ = app.store.saveLocked()
+	app.store.mu.Unlock()
+	http.Redirect(w, r, "/admin/backups", http.StatusSeeOther)
 }
 
 func (app *App) createBackup(r *http.Request, ctx *RequestContext) (string, error) {
@@ -2048,11 +2292,32 @@ func tokenize(s string) []string {
 
 func allowedUploadExt(ext string) bool {
 	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".txt", ".md", ".csv", ".json", ".zip", ".docx", ".xlsx", ".pptx", ".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".mov":
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".txt", ".md", ".csv", ".json", ".zip", ".docx", ".xlsx", ".pptx", ".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".mov", ".glb", ".gltf", ".bin":
 		return true
 	default:
 		return false
 	}
+}
+
+func uploadMIME(ext, detected string) string {
+	switch strings.ToLower(ext) {
+	case ".gltf":
+		return "model/gltf+json"
+	case ".glb":
+		return "model/gltf-binary"
+	case ".bin":
+		return "application/octet-stream"
+	}
+	if m := mime.TypeByExtension(ext); m != "" {
+		m = strings.Split(m, ";")[0]
+		if detected == "" || detected == "application/octet-stream" || strings.HasPrefix(detected, "text/plain") {
+			return m
+		}
+	}
+	if detected == "" {
+		return "application/octet-stream"
+	}
+	return detected
 }
 
 func safeFileName(name string) string {
@@ -2071,7 +2336,7 @@ func safeFileName(name string) string {
 }
 
 func isInlineSafe(m string) bool {
-	return strings.HasPrefix(m, "image/") || strings.HasPrefix(m, "audio/") || strings.HasPrefix(m, "video/") || strings.HasPrefix(m, "text/plain") || m == "application/pdf"
+	return strings.HasPrefix(m, "image/") || strings.HasPrefix(m, "audio/") || strings.HasPrefix(m, "video/") || strings.HasPrefix(m, "text/plain") || m == "application/pdf" || isModelMIME(m)
 }
 
 func attachmentMarkdown(att *Attachment, url string) string {
@@ -2088,6 +2353,9 @@ func attachmentMarkdown(att *Attachment, url string) string {
 	if strings.HasPrefix(att.MIME, "audio/") {
 		return "![" + label + "](" + url + ")"
 	}
+	if isPDFMIME(att.MIME) || isModelMIME(att.MIME) || isPDFExt(filepath.Ext(att.OriginalName)) || isModelExt(filepath.Ext(att.OriginalName)) {
+		return "![" + label + "|100%](" + url + ")"
+	}
 	return "[" + label + "](" + url + ")"
 }
 
@@ -2096,6 +2364,51 @@ func attachmentHTML(att *Attachment, url string) string {
 		return ""
 	}
 	return renderEmbeddedFile(att.OriginalName, url, att.MIME)
+}
+
+func attachmentFileURL(att *Attachment) string {
+	if att == nil {
+		return ""
+	}
+	return "/files/" + url.PathEscape(att.ID) + "/" + url.PathEscape(att.OriginalName)
+}
+
+func attachmentModelURL(att *Attachment) string {
+	if att == nil {
+		return ""
+	}
+	return "/model-assets/" + url.PathEscape(att.ID) + "/" + url.PathEscape(att.OriginalName)
+}
+
+func attachmentEmbedURL(att *Attachment) string {
+	if att == nil {
+		return ""
+	}
+	if isModelMIME(att.MIME) || isModelExt(filepath.Ext(att.OriginalName)) {
+		return attachmentModelURL(att)
+	}
+	return attachmentFileURL(att)
+}
+
+func attachmentKind(att *Attachment) string {
+	if att == nil {
+		return "FILE"
+	}
+	ext := strings.ToLower(filepath.Ext(att.OriginalName))
+	switch {
+	case strings.HasPrefix(att.MIME, "image/") || isImageExt(ext):
+		return "IMG"
+	case strings.HasPrefix(att.MIME, "audio/") || isAudioExt(ext):
+		return "AUDIO"
+	case strings.HasPrefix(att.MIME, "video/") || isVideoExt(ext):
+		return "VIDEO"
+	case isPDFMIME(att.MIME) || isPDFExt(ext):
+		return "PDF"
+	case isModelMIME(att.MIME) || isModelExt(ext):
+		return "3D"
+	default:
+		return strings.TrimPrefix(strings.ToUpper(ext), ".")
+	}
 }
 
 func renderEmbeddedFile(alt, url, mimeType string) string {
@@ -2116,7 +2429,7 @@ func renderEmbeddedFileSized(alt, rawURL, mimeType, sizeOverride string) string 
 	ext := urlExt(cleanURL)
 	style := mediaSizeStyle(size, true)
 	if strings.HasPrefix(mimeType, "image/") || isImageExt(ext) {
-		return `<img class="md-img" alt="` + altEsc + `" src="` + urlEsc + `"` + style + `>`
+		return `<img class="md-img" alt="` + altEsc + `" src="` + urlEsc + `" loading="lazy" decoding="async"` + style + `>`
 	}
 	style = mediaSizeStyle(size, false)
 	if strings.HasPrefix(mimeType, "audio/") || isAudioExt(ext) {
@@ -2124,6 +2437,12 @@ func renderEmbeddedFileSized(alt, rawURL, mimeType, sizeOverride string) string 
 	}
 	if strings.HasPrefix(mimeType, "video/") || isVideoExt(ext) {
 		return `<video class="md-media" controls preload="metadata" src="` + urlEsc + `"` + style + `>` + altEsc + `</video>`
+	}
+	if isPDFMIME(mimeType) || isPDFExt(ext) {
+		return renderPDFEmbed(label, cleanURL, size)
+	}
+	if isModelMIME(mimeType) || isModelExt(ext) {
+		return renderModelEmbed(label, cleanURL, size)
 	}
 	return `<a href="` + urlEsc + `" target="_blank" rel="noopener noreferrer">` + altEsc + `</a>`
 }
@@ -2138,7 +2457,7 @@ func renderMarkdownLink(label, rawURL string) string {
 		return renderYouTubeEmbed(label, embedURL, size)
 	}
 	ext := urlExt(cleanURL)
-	if isImageExt(ext) || isAudioExt(ext) || isVideoExt(ext) {
+	if isImageExt(ext) || isAudioExt(ext) || isVideoExt(ext) || isPDFExt(ext) || isModelExt(ext) {
 		return renderEmbeddedFileSized(label, cleanURL, "", size)
 	}
 	return `<a href="` + html.EscapeString(cleanURL) + `" target="_blank" rel="noopener noreferrer">` + html.EscapeString(label) + `</a>`
@@ -2153,7 +2472,7 @@ func renderAutoMediaURL(rawURL string) string {
 		return renderYouTubeEmbed("YouTube video", embedURL, "")
 	}
 	ext := urlExt(cleanURL)
-	if isImageExt(ext) || isAudioExt(ext) || isVideoExt(ext) {
+	if isImageExt(ext) || isAudioExt(ext) || isVideoExt(ext) || isPDFExt(ext) || isModelExt(ext) {
 		return renderEmbeddedFile(filepath.Base(urlPath(cleanURL)), cleanURL, "")
 	}
 	return `<a href="` + html.EscapeString(cleanURL) + `" target="_blank" rel="noopener noreferrer">` + html.EscapeString(cleanURL) + `</a>`
@@ -2162,6 +2481,20 @@ func renderAutoMediaURL(rawURL string) string {
 func renderYouTubeEmbed(label, embedURL, size string) string {
 	style := mediaSizeStyle(size, false)
 	return `<div class="md-embed"` + style + `><iframe src="` + html.EscapeString(embedURL) + `" title="` + html.EscapeString(label) + `" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>`
+}
+
+func renderPDFEmbed(label, rawURL, size string) string {
+	style := mediaSizeStyle(size, false)
+	labelEsc := html.EscapeString(label)
+	urlEsc := html.EscapeString(rawURL)
+	return `<div class="md-pdf"` + style + ` data-pdf-src="` + urlEsc + `" aria-label="PDF: ` + labelEsc + `"><div class="md-pdf-toolbar"><span class="md-pdf-title">` + labelEsc + `</span><span class="md-pdf-pages" data-pdf-page>PDF</span><button type="button" data-pdf-prev>Назад</button><button type="button" data-pdf-next>Вперёд</button><button type="button" data-pdf-zoom-out>-</button><button type="button" data-pdf-zoom-in>+</button><a href="` + urlEsc + `" target="_blank" rel="noopener noreferrer">Открыть</a></div><div class="md-pdf-stage"><canvas></canvas><p class="muted" data-pdf-status>Загрузка PDF...</p></div></div>`
+}
+
+func renderModelEmbed(label, rawURL, size string) string {
+	style := mediaSizeStyle(size, false)
+	labelEsc := html.EscapeString(label)
+	urlEsc := html.EscapeString(rawURL)
+	return `<div class="md-model"` + style + `><model-viewer src="` + urlEsc + `" alt="` + labelEsc + `" camera-controls touch-action="pan-y" loading="lazy" shadow-intensity="0.7" exposure="1"></model-viewer><a class="md-model-fallback" href="` + urlEsc + `" target="_blank" rel="noopener noreferrer">Открыть 3D модель: ` + labelEsc + `</a></div>`
 }
 
 func markdownLabel(s string) string {
@@ -2231,7 +2564,7 @@ func mediaDimension(v string) string {
 func cleanMediaURL(raw string) (string, bool) {
 	raw = strings.TrimSpace(html.UnescapeString(raw))
 	raw = strings.Trim(raw, "<>")
-	if strings.HasPrefix(raw, "/files/") {
+	if strings.HasPrefix(raw, "/files/") || strings.HasPrefix(raw, "/model-assets/") {
 		return raw, true
 	}
 	u, err := url.Parse(raw)
@@ -2348,6 +2681,28 @@ func isVideoExt(ext string) bool {
 	default:
 		return false
 	}
+}
+
+func isPDFExt(ext string) bool {
+	return strings.ToLower(ext) == ".pdf"
+}
+
+func isPDFMIME(m string) bool {
+	return strings.EqualFold(strings.TrimSpace(m), "application/pdf")
+}
+
+func isModelExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".glb", ".gltf":
+		return true
+	default:
+		return false
+	}
+}
+
+func isModelMIME(m string) bool {
+	m = strings.ToLower(strings.TrimSpace(m))
+	return m == "model/gltf+json" || m == "model/gltf-binary"
 }
 
 func escapeHeaderFilename(s string) string {
@@ -2543,8 +2898,8 @@ var boldRE = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 var italicRE = regexp.MustCompile(`\*([^*]+)\*`)
 var codeRE = regexp.MustCompile("`([^`]+)`")
 var imageRE = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)\)`)
-var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\s)]+|/files/[^\s)]+)\)`)
-var autoURLRE = regexp.MustCompile(`(^|[\s(])((?:https?://|/files/)[^\s<]+)`)
+var mdLinkRE = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^\s)]+|/(?:files|model-assets)/[^\s)]+)\)`)
+var autoURLRE = regexp.MustCompile(`(^|[\s(])((?:https?://|/(?:files|model-assets)/)[^\s<]+)`)
 
 func RenderMarkdown(src string) template.HTML {
 	src = strings.ReplaceAll(src, "\r\n", "\n")
@@ -2649,7 +3004,12 @@ func RenderMarkdown(src string) template.HTML {
 			b.WriteString(fmt.Sprintf("<h%d>%s</h%d>", lvl, inlineMarkdown(text), lvl))
 			continue
 		}
-		b.WriteString("<p>" + inlineMarkdown(trim) + "</p>")
+		inline := inlineMarkdown(trim)
+		if hasBlockEmbed(inline) {
+			b.WriteString(inline)
+		} else {
+			b.WriteString("<p>" + inline + "</p>")
+		}
 	}
 	flushTable()
 	closeList()
@@ -2798,32 +3158,19 @@ func articleLinksTo(content, slug string) bool {
 	return found
 }
 
+func hasBlockEmbed(html string) bool {
+	trimmed := strings.TrimSpace(html)
+	return strings.HasPrefix(trimmed, `<div class="md-embed"`) ||
+		strings.HasPrefix(trimmed, `<div class="md-pdf"`) ||
+		strings.HasPrefix(trimmed, `<div class="md-model"`) ||
+		strings.HasPrefix(trimmed, `<img class="md-img"`) ||
+		strings.HasPrefix(trimmed, `<video class="md-media"`) ||
+		strings.HasPrefix(trimmed, `<audio class="md-media"`) ||
+		strings.HasPrefix(trimmed, `<blockquote`)
+}
+
 func editorScript() string {
-	return `<script>
-const md=document.getElementById('md');const host=document.getElementById('toastEditor');const shell=document.querySelector('.live-editor-shell');const previewStatus=document.getElementById('previewStatus');const csrf=document.querySelector('#editorForm input[name="csrf"]')?.value||'';let articleId=shell?.dataset.articleId||'',toastEditor=null;
-function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function slug(s){return s.toLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu,'-').replace(/^-+|-+$/g,'');}
-function mdLabel(s){s=String(s||'file').replace(/[\r\n\[\]()]/g,' ').trim();return s||'file'}
-function mdURL(s){return String(s||'').trim().replace(/[)\s]+/g,'')}
-function mediaMarkdown(data){const mime=data.mime||'',url=mdURL(data.url||''),name=mdLabel(data.name||'file');if(mime.startsWith('image/'))return '!['+name+'|100%]('+url+')';if(mime.startsWith('video/'))return '!['+name+'|760]('+url+')';if(mime.startsWith('audio/'))return '!['+name+']('+url+')';return data.markdown||('['+name+']('+url+')')}
-function setPreviewStatus(text,state){if(previewStatus){previewStatus.textContent=text;previewStatus.dataset.state=state||''}}
-function syncMarkdown(){if(md&&toastEditor){md.value=toastEditor.getMarkdown()}}
-function loadStyle(href){if(document.querySelector('link[href="'+href+'"]'))return;const link=document.createElement('link');link.rel='stylesheet';link.href=href;document.head.appendChild(link)}
-function loadScript(src){return new Promise((resolve,reject)=>{if(document.querySelector('script[src="'+src+'"]')){resolve();return}const s=document.createElement('script');s.src=src;s.onload=resolve;s.onerror=reject;document.head.appendChild(s)})}
-function normalizeInsert(markdown){markdown=String(markdown||'');return /\n$/.test(markdown)?markdown:markdown+'\n'}
-function insertMarkdown(markdown){if(!toastEditor)return;markdown=normalizeInsert(markdown);toastEditor.focus();try{const sel=toastEditor.getSelection&&toastEditor.getSelection();if(typeof toastEditor.replaceSelection==='function'){toastEditor.replaceSelection(markdown,sel&&sel[0],sel&&sel[1])}else if(typeof toastEditor.insertText==='function'){toastEditor.insertText(markdown)}else{const current=toastEditor.getMarkdown();toastEditor.setMarkdown(current+(current.endsWith('\n')?'':'\n')+markdown,false)}}catch(e){const current=toastEditor.getMarkdown();toastEditor.setMarkdown(current+(current.endsWith('\n')?'':'\n')+markdown,false)}syncMarkdown();setPreviewStatus('изменено','ok')}
-function insertUploadedMedia(data){if(!toastEditor||!data)return;toastEditor.focus();insertMarkdown(mediaMarkdown(data))}
-function insertWikiLink(){const name=prompt('Статья для wiki-ссылки','');if(!name)return;const s=slug(name);insertMarkdown('[['+s+'|'+name+']]')}
-function insertVideoLink(){const raw=prompt('YouTube или video URL','');const url=mdURL(raw);if(!url)return;const title=mdLabel(prompt('Подпись','Видео')||'Видео');insertMarkdown('['+title+']('+url+')')}
-function htmlForAttachment(x){if(x.html)return x.html;const name=esc(x.name||'file'),url=esc(x.url||'#'),m=x.mime||'';if(m.startsWith('image/'))return '<img class="md-img" alt="'+name+'" src="'+url+'">';if(m.startsWith('audio/'))return '<audio class="md-media" controls src="'+url+'"></audio>';if(m.startsWith('video/'))return '<video class="md-media" controls src="'+url+'"></video>';return '<a href="'+url+'">'+name+'</a>'}
-async function ensureArticle(){if(articleId)return articleId;setPreviewStatus('черновик','loading');const res=await fetch('/admin/draft',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},body:new URLSearchParams({csrf:csrf})});if(!res.ok)throw new Error('draft '+res.status);const data=await res.json();articleId=data.id;shell.dataset.articleId=articleId;const idInput=document.querySelector('#editorForm input[name="id"]');if(idInput)idInput.value=articleId;if(data.edit_url)history.replaceState(null,'',data.edit_url);return articleId}
-async function uploadOne(file){await ensureArticle();const fd=new FormData();fd.append('csrf',csrf);fd.append('article_id',articleId);fd.append('file',file);const res=await fetch('/attachments/drop',{method:'POST',body:fd});if(!res.ok)throw new Error('upload '+res.status);return await res.json()}
-function allImages(files){return Array.from(files||[]).every(f=>String(f.type||'').startsWith('image/'))}
-async function uploadFiles(files){if(!files||!files.length)return;try{setPreviewStatus('загрузка','loading');for(const file of files){const data=await uploadOne(file);insertUploadedMedia(data)}setPreviewStatus('live','ok')}catch(e){setPreviewStatus('ошибка загрузки','fallback');console.warn(e)}}
-function bindDropAndPaste(){const root=host.querySelector('.toastui-editor-defaultUI')||host;root.addEventListener('dragover',e=>{if(e.dataTransfer?.files?.length){shell.classList.add('dragging');if(!allImages(e.dataTransfer.files))e.preventDefault()}},true);root.addEventListener('dragleave',()=>shell.classList.remove('dragging'),true);root.addEventListener('drop',e=>{const files=e.dataTransfer?.files;if(files&&files.length&&!allImages(files)){e.preventDefault();e.stopPropagation();shell.classList.remove('dragging');uploadFiles(files)}},true);root.addEventListener('paste',e=>{const files=e.clipboardData?.files;if(files&&files.length&&!allImages(files)){e.preventDefault();e.stopPropagation();uploadFiles(files)}},true)}
-async function initToastEditor(){if(!host||!md)return;loadStyle('https://uicdn.toast.com/editor/latest/toastui-editor.min.css');loadStyle('https://uicdn.toast.com/editor/latest/theme/toastui-editor-dark.min.css');loadStyle('https://uicdn.toast.com/editor-plugin-table-merged-cell/latest/toastui-editor-plugin-table-merged-cell.min.css');try{await loadScript('https://uicdn.toast.com/editor/latest/toastui-editor-all.min.js');await loadScript('https://uicdn.toast.com/editor-plugin-table-merged-cell/latest/toastui-editor-plugin-table-merged-cell.min.js')}catch(e){host.innerHTML='<textarea id="fallbackEditor"></textarea>';const fb=document.getElementById('fallbackEditor');fb.value=md.value;fb.addEventListener('input',()=>{md.value=fb.value});setPreviewStatus('offline','fallback');return}const Editor=toastui.Editor;const tableMergedCell=Editor.plugin&&Editor.plugin.tableMergedCell;toastEditor=new Editor({el:host,height:'calc(100vh - 310px)',initialValue:md.value||'',initialEditType:'wysiwyg',previewStyle:'vertical',hideModeSwitch:false,theme:'dark',usageStatistics:false,plugins:tableMergedCell?[tableMergedCell]:[],toolbarItems:[['heading','bold','italic','strike'],['hr','quote'],['ul','ol','task'],['table','image','link'],['code','codeblock']],hooks:{addImageBlobHook:async(blob)=>{try{setPreviewStatus('загрузка','loading');const data=await uploadOne(blob);insertUploadedMedia(data);setPreviewStatus('вставлено','ok')}catch(e){setPreviewStatus('ошибка загрузки','fallback')}return false}}});toastEditor.on('change',()=>{syncMarkdown();setPreviewStatus('live','ok')});bindDropAndPaste();syncMarkdown();setPreviewStatus(tableMergedCell?'live + tables':'live','ok')}
-if(host){initToastEditor();document.getElementById('editorForm')?.addEventListener('submit',syncMarkdown);document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();syncMarkdown();document.getElementById('editorForm').submit()}})}
-</script>`
+	return `<script src="/static/editor.js" defer></script>`
 }
 
 func (app *App) render(w http.ResponseWriter, r *http.Request, title string, u *User, s *Session, body template.HTML) {
@@ -2859,18 +3206,10 @@ func (app *App) ribbonArticles(u *User, r *http.Request) []RibbonArticle {
 	return out
 }
 
-var layoutTmpl = template.Must(template.New("layout").Parse(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · {{.App}}</title><style>` + css() + `</style></head><body><div class="bg"></div><header><a class="brand" href="/"><span>DH</span>{{.App}}</a>{{if .User}}<nav><span class="user-pill">{{.User.Username}} · {{.User.Role}}</span>{{if eq .User.Role "admin"}}<a href="/edit/new">Новая</a><a href="/admin/import">Импорт</a><a href="/admin/ribbon">Лента</a><a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/backups">Backups</a>{{end}}<a href="/logout">Выйти</a></nav>{{end}}</header>{{if .User}}<aside class="vault-ribbon"><a class="ribbon-home" href="/">Все</a>{{range .Ribbon}}<a class="ribbon-note{{if .Active}} active{{end}}" href="/a/{{.Slug}}" data-note-preview="/preview/article/{{.Slug}}" title="{{.Title}}"><span>{{.Title}}</span></a>{{end}}{{if eq .User.Role "admin"}}<a class="ribbon-settings" href="/admin/ribbon">Настроить</a>{{end}}</aside>{{end}}<main>{{.Body}}</main><div id="pagePreviewPopup" class="page-preview-popup" hidden></div><script>` + pagePreviewScript() + `</script></body></html>`))
+var layoutTmpl = template.Must(template.New("layout").Parse(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}} · {{.App}}</title><script>(function(){var t=localStorage.getItem("docs-hub-theme");if(!t){t=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"}document.documentElement.setAttribute("data-theme",t)})()</script><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/palette.css"></head><body><div class="bg"></div><header><a class="brand" href="/"><span>DH</span>{{.App}}</a>{{if .User}}<nav class="nav-group"><span class="user-pill">{{.User.Username}} · {{.User.Role}}</span>{{if eq .User.Role "admin"}}<a href="/edit/new">Новая</a><a href="/admin/import">Импорт</a><a href="/admin/ribbon">Лента</a><a href="/admin/users">Пользователи</a><a href="/admin/groups">Группы</a><a href="/admin/backups">Резервные копии</a><a href="/admin/audit">Аудит</a>{{end}}<a href="/logout">Выйти</a></nav>{{end}}<button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему" aria-label="Переключить тему">Тема</button></header>{{if .User}}<aside class="vault-ribbon"><a class="ribbon-home" href="/">Все</a>{{range .Ribbon}}<a class="ribbon-note{{if .Active}} active{{end}}" href="/a/{{.Slug}}" data-note-preview="/preview/article/{{.Slug}}" title="{{.Title}}"><span>{{.Title}}</span></a>{{end}}{{if eq .User.Role "admin"}}<a class="ribbon-settings" href="/admin/ribbon">Настроить</a>{{end}}</aside>{{end}}<main>{{.Body}}</main><div id="pagePreviewPopup" class="page-preview-popup" hidden></div><script src="/static/theme.js" defer></script><script src="/static/preview.js" defer></script><script src="/static/media-viewers.js" defer></script><script src="/static/palette.js" defer></script></body></html>`))
 
 func pagePreviewScript() string {
-	return `
-(()=>{const popup=document.getElementById('pagePreviewPopup');if(!popup)return;let timer=null,hideTimer=null,active=null;
-function previewURL(el){if(el.dataset&&el.dataset.notePreview)return el.dataset.notePreview;const href=el.getAttribute&&el.getAttribute('href');return href&&href.startsWith('/a/')?'/preview/article/'+encodeURIComponent(href.slice(3)):''}
-function place(e){const pad=14;let x=e.clientX+18,y=e.clientY+18;popup.style.left=x+'px';popup.style.top=y+'px';const r=popup.getBoundingClientRect();if(r.right>innerWidth-pad)popup.style.left=Math.max(pad,e.clientX-r.width-18)+'px';if(r.bottom>innerHeight-pad)popup.style.top=Math.max(pad,e.clientY-r.height-18)+'px'}
-async function show(el,e){const url=previewURL(el);if(!url)return;active=url;place(e);popup.hidden=false;popup.innerHTML='<p class="muted">Загрузка...</p>';try{const res=await fetch(url);if(active!==url)return;if(!res.ok)throw new Error('HTTP '+res.status);popup.innerHTML=await res.text()}catch(err){popup.hidden=true}}
-document.addEventListener('mouseover',e=>{const a=e.target.closest('a[href],a[data-note-preview]');if(!a)return;const url=previewURL(a);if(!url)return;clearTimeout(hideTimer);timer=setTimeout(()=>show(a,e),260)});
-document.addEventListener('mousemove',e=>{if(!popup.hidden)place(e)});
-document.addEventListener('mouseout',e=>{const a=e.target.closest('a[href],a[data-note-preview]');if(!a)return;clearTimeout(timer);hideTimer=setTimeout(()=>{popup.hidden=true;active=null},180)});
-})();`
+	return `<script src="/static/preview.js" defer></script>`
 }
 
 func css() string {

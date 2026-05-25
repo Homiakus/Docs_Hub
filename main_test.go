@@ -94,6 +94,9 @@ func TestMarkdownEscapesXSS(t *testing.T) {
 func TestMarkdownMediaEmbedsAndSizing(t *testing.T) {
 	out := string(RenderMarkdown(`![Chart|50%](/files/1/chart.png)
 [Clip|640x360](https://cdn.example.com/video.mp4)
+https://cdn.example.com/audio.mp3
+![Manual|640x480](/files/2/manual.pdf)
+![Part|600x360](/model-assets/3/part.glb)
 https://youtu.be/dQw4w9WgXcQ
 [YT|480](https://www.youtube.com/watch?v=abc_DEF-12)`))
 
@@ -103,11 +106,28 @@ https://youtu.be/dQw4w9WgXcQ
 	if !strings.Contains(out, `<video class="md-media"`) || !strings.Contains(out, `style="width:640px;height:360px"`) {
 		t.Fatalf("sized video link was not rendered: %s", out)
 	}
+	if !strings.Contains(out, `<audio class="md-media"`) {
+		t.Fatalf("audio link was not rendered: %s", out)
+	}
+	if !strings.Contains(out, `<div class="md-pdf"`) || !strings.Contains(out, `data-pdf-src="/files/2/manual.pdf"`) {
+		t.Fatalf("pdf link was not rendered: %s", out)
+	}
+	if !strings.Contains(out, `<div class="md-model"`) || !strings.Contains(out, `<model-viewer src="/model-assets/3/part.glb"`) {
+		t.Fatalf("model link was not rendered: %s", out)
+	}
 	if !strings.Contains(out, `https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ`) {
 		t.Fatalf("bare youtube link was not embedded: %s", out)
 	}
 	if !strings.Contains(out, `https://www.youtube-nocookie.com/embed/abc_DEF-12`) || !strings.Contains(out, `style="width:480px"`) {
 		t.Fatalf("sized youtube link was not embedded: %s", out)
+	}
+}
+
+func TestMarkdownRejectsUnsafeMediaURLs(t *testing.T) {
+	out := string(RenderMarkdown(`![Bad](javascript:alert(1))
+[Bad](javascript:alert(1))`))
+	if strings.Contains(out, `<a href="javascript:`) || strings.Contains(out, `<img`) {
+		t.Fatalf("unsafe media URL was rendered as active HTML: %s", out)
 	}
 }
 
@@ -376,6 +396,67 @@ func TestArchivedArticleAttachmentNotServed(t *testing.T) {
 	}
 }
 
+func TestModelAssetRouteResolvesCompanionAndRespectsACL(t *testing.T) {
+	dir := t.TempDir()
+	uploads := filepath.Join(dir, "uploads")
+	if err := os.MkdirAll(uploads, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(uploads, "1.gltf"), []byte(`{"buffers":[{"uri":"scene.bin"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(uploads, "2.bin"), []byte("binary-data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{path: filepath.Join(dir, "storage.json"), db: Database{
+		Groups: map[string]*Group{},
+		Articles: map[string]*Article{
+			"1": {ID: "1", AllUsers: true},
+		},
+		Attachments: map[string]*Attachment{
+			"1": {ID: "1", ArticleID: "1", StoredName: "1.gltf", OriginalName: "model.gltf", MIME: "model/gltf+json"},
+			"2": {ID: "2", ArticleID: "1", StoredName: "2.bin", OriginalName: "scene.bin", MIME: "application/octet-stream"},
+		},
+	}}
+	app := NewApp(store)
+	ctx := &RequestContext{User: &User{ID: "u1", Role: RoleUser, Active: true}}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/model-assets/1/scene.bin", nil)
+	app.modelAssetServe(rr, req, ctx)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("model companion status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != "binary-data" {
+		t.Fatalf("wrong companion body: %q", rr.Body.String())
+	}
+
+	store.db.Articles["1"].AllUsers = false
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest("GET", "/model-assets/1/model.gltf", nil)
+	app.modelAssetServe(rr, req, ctx)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("restricted model asset status=%d, want 404", rr.Code)
+	}
+}
+
+func TestModelUploadExtensionsAndMIMEs(t *testing.T) {
+	for _, ext := range []string{".glb", ".gltf", ".bin"} {
+		if !allowedUploadExt(ext) {
+			t.Fatalf("%s should be allowed", ext)
+		}
+	}
+	if got := uploadMIME(".glb", "application/octet-stream"); got != "model/gltf-binary" {
+		t.Fatalf("glb MIME = %q", got)
+	}
+	if got := uploadMIME(".gltf", "text/plain; charset=utf-8"); got != "model/gltf+json" {
+		t.Fatalf("gltf MIME = %q", got)
+	}
+	if got := uploadMIME(".bin", "text/plain; charset=utf-8"); got != "application/octet-stream" {
+		t.Fatalf("bin MIME = %q", got)
+	}
+}
+
 func TestLoadStorePersistsMigration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "storage.json")
@@ -519,8 +600,8 @@ func TestAdminMarkdownFolderImport(t *testing.T) {
 		t.Fatalf("nested import article missing: %#v", note)
 	}
 	for _, a := range []*Article{start2, note} {
-		if a.AllUsers || len(a.AllowedUserIDs) != 0 || len(a.AllowedGroupIDs) != 0 || a.OwnerID != "1" {
-			t.Fatalf("imported article is not private/admin-owned: %#v", a)
+		if !a.AllUsers || len(a.AllowedUserIDs) != 0 || len(a.AllowedGroupIDs) != 0 || a.OwnerID != "1" {
+			t.Fatalf("imported article is not public/admin-owned: %#v", a)
 		}
 	}
 	if len(note.Tags) != 1 || note.Tags[0] != "docs" {

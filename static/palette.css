@@ -1,0 +1,83 @@
+/* =================================================================
+   Command Palette (Cmd/Ctrl+K) — Raycast/Obsidian style
+   ================================================================= */
+
+.cmd-palette-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 18vh;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    animation: palette-in .15s ease-out;
+}
+@keyframes palette-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.cmd-palette {
+    width: min(600px, calc(100vw - 32px));
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+.cmd-palette-header {
+    padding: 16px 18px 10px;
+    border-bottom: 1px solid var(--line);
+}
+.cmd-palette-input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 18px;
+    padding: 6px 0;
+    outline: none;
+    box-shadow: none !important;
+}
+.cmd-palette-input::placeholder { color: #5a6560; }
+.cmd-palette-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #5a6560;
+}
+.cmd-palette-results {
+    max-height: 380px;
+    overflow: auto;
+    padding: 6px;
+}
+.cmd-palette-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 14px;
+    transition: background .1s;
+}
+.cmd-palette-item:hover,
+.cmd-palette-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+.cmd-palette-icon {
+    width: 24px;
+    text-align: center;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+.cmd-palette-label { flex: 1; }
+.cmd-palette-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+}
