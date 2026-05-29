@@ -1,0 +1,73 @@
+{{define "base"}}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · {{.SiteName}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body class="{{if not .User}}auth-page{{end}}">
+{{if .User}}
+<div class="app-shell">
+  <aside class="sidepanel" id="mobile-navigation" aria-label="Боковое меню">
+    <div class="sidepanel-head">
+      <a class="brand" href="/"><span class="brand-mark">DH</span><span>{{.SiteName}}</span></a>
+      <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть меню">
+        <span aria-hidden="true">×</span>
+      </button>
+    </div>
+    <nav class="side-nav" aria-label="Навигация">
+      <section>
+        <h2>Main</h2>
+        <a class="side-link" href="/"><span>Обзор</span></a>
+        {{if .User}}<a class="side-link" href="/new"><span>Новая статья</span></a>{{end}}
+        {{if .User}}<a class="side-link" href="/graph"><span>Граф знаний</span></a>{{end}}
+      </section>
+      <section>
+        <h2>Категории</h2>
+        {{range .Categories}}<a class="side-link subtle" href="{{tagPath .Slug}}"><span>{{.Name}}</span><em>{{.Count}}</em></a>{{else}}<p class="side-empty">Категорий пока нет</p>{{end}}
+      </section>
+      <section>
+        <h2>Wiki links</h2>
+        {{range .WikiLinks}}<a class="side-link subtle" href="{{articlePath .Slug}}"><span>{{.Label}}</span><em>{{if eq .Direction "back"}}in{{else}}out{{end}}</em></a>{{else}}<p class="side-empty">Связи появятся в статье.</p>{{end}}
+      </section>
+      <section>
+        <h2>Tools</h2>
+        {{if .User}}{{if eq .User.Role "admin"}}<a class="side-link" href="/admin"><span>Админ</span></a>{{end}}{{end}}
+        {{if .User}}<form method="post" action="/logout" class="inline"><button class="side-link side-button" type="submit"><span>Выйти</span></button></form>{{else}}<a class="side-link" href="/login"><span>Войти</span></a>{{end}}
+      </section>
+    </nav>
+    <section class="side-activity">
+      <h2>Изменения</h2>
+      {{range .Activities}}
+        <article>
+          <strong>{{.Actor}}</strong>
+          {{if .Slug}}<a href="{{articlePath .Slug}}">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}
+          <p>{{.Summary}}</p>
+        </article>
+      {{else}}<p class="side-empty">История пуста.</p>{{end}}
+    </section>
+  </aside>
+  <section class="app-main">
+    <header class="topbar">
+      <button class="icon-button mobile-nav-toggle" type="button" aria-label="Открыть меню" aria-controls="mobile-navigation" aria-expanded="false">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </button>
+      <form class="search" action="/" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug"></form>
+      <div class="top-actions">
+        {{if .User}}<span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span><a class="button primary" href="/new">Создать</a>{{else}}<a class="button primary" href="/login">Войти</a>{{end}}
+      </div>
+    </header>
+    <main class="layout">{{template "content" .}}</main>
+  </section>
+</div>
+{{else}}
+<main class="auth-shell">{{template "content" .}}</main>
+{{end}}
+</body>
+</html>
+{{end}}

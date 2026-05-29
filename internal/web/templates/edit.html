@@ -1,0 +1,30 @@
+{{define "content"}}
+<form class="editor workspace-panel" method="post" action="/save">
+  <input type="hidden" name="id" value="{{.Article.ID}}">
+  <div class="pagehead">
+    <div>
+      <p class="eyebrow">Редактор</p>
+      <h1>{{if .Article.ID}}Правка статьи{{else}}Новая статья{{end}}</h1>
+    </div>
+    <button class="button primary" type="submit">Сохранить</button>
+  </div>
+  <div class="formgrid">
+    <label>Slug<input name="slug" value="{{.Article.Slug}}" placeholder="start-here"></label>
+    <label>Заголовок<input name="title" value="{{.Article.Title}}" placeholder="Заголовок"></label>
+    <label>Категория<select name="category_id"><option value="0">Без категории</option>{{range .AdminCategories}}<option value="{{.ID}}" {{if eq $.Article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+    <label>Видимость<select name="visibility"><option value="authenticated" {{if eq .Article.Visibility "authenticated"}}selected{{end}}>Все вошедшие</option><option value="private" {{if eq .Article.Visibility "private"}}selected{{end}}>Приватно</option><option value="public" {{if eq .Article.Visibility "public"}}selected{{end}}>Публично</option></select></label>
+  </div>
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="mediaInput" accept="image/*,audio/*,video/*" multiple hidden>
+    <div>
+      <strong>Перетащите изображения, аудио или видео в редактор</strong>
+      <p>Файл загрузится и вставится в текст как Markdown или media-тег.</p>
+    </div>
+    <button class="button" type="button" id="mediaPicker">Выбрать файлы</button>
+  </div>
+  <div class="editorgrid">
+    <textarea name="content" id="content" spellcheck="false" data-upload-endpoint="/api/uploads">{{.Article.Content}}</textarea>
+    <div id="preview" class="markdown preview"></div>
+  </div>
+</form>
+{{end}}

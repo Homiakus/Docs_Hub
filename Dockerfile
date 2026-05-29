@@ -1,20 +1,15 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.23 AS build
 WORKDIR /src
-COPY go.mod go.sum ./
+COPY go.mod go.sum* ./
 RUN go mod download
-COPY main.go ./
-COPY deploytui ./deploytui
-COPY static ./static
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /docs-hub .
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/docshub ./cmd/docshub
 
-FROM alpine:3.20
-RUN addgroup -S docshub && adduser -S docshub -G docshub
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-COPY --from=build /docs-hub /app/docs-hub
-RUN mkdir -p /data && chown -R docshub:docshub /data /app
-USER docshub
-ENV ADDR=:8080
-ENV DATA_FILE=/data/storage.json
-EXPOSE 8080
+COPY --from=build /out/docshub /app/docshub
+ENV ADDR=:8080 DATA_DIR=/data
 VOLUME ["/data"]
-CMD ["/app/docs-hub", "serve"]
+EXPOSE 8080
+USER nonroot:nonroot
+ENTRYPOINT ["/app/docshub"]

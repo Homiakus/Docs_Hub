@@ -7,5 +7,7 @@ backups/
 *.log
 .env
 *.exe
+node_modules/
+web/node_modules/
 minivault-enterprise
 docs-hub

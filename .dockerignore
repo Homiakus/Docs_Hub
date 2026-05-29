@@ -1,0 +1,9 @@
+.git
+data
+deploy
+dist
+uploads
+backups
+web/node_modules
+*.exe
+*.log

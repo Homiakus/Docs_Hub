@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="workspace-panel">
+  <div class="pagehead">
+    <div>
+      <p class="eyebrow">{{if .Query}}Результаты поиска{{else}}База знаний{{end}}</p>
+      <h1>{{if .Query}}Поиск: {{.Query}}{{else}}Статьи{{end}}</h1>
+    </div>
+    {{if .User}}<a class="button primary" href="/new">Новая статья</a>{{end}}
+  </div>
+  <div class="list">
+  {{range .Articles}}
+    <article class="listitem">
+      <h2><a href="{{articlePath .Slug}}">{{.Title}}</a></h2>
+      <p><code>{{.Slug}}</code><span>{{.UpdatedAt}}</span><span>{{.Visibility}}</span></p>
+    </article>
+  {{else}}<p class="u-muted">Ничего не найдено.</p>{{end}}
+  </div>
+</section>
+{{end}}

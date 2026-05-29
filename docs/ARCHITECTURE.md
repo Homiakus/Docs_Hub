@@ -1,25 +1,54 @@
 # Architecture
 
-Docs Hub keeps the deployment simple: one Go binary, one JSON database file, one uploads directory, one backups directory.
+## Цель
 
-## Components
+Docs Hub Next — не очередной клон Confluence. Это лёгкая self-hosted Markdown-first wiki для команд, совместимая по мышлению с Obsidian: wiki-links, backlinks, graph, tags, Markdown, импорт vault.
 
-- `main.go`: HTTP server, auth, ACL, editor UI, Markdown rendering, attachments, backups, migrations.
-- `storage.json`: users, groups, articles, sessions, attachment metadata, audit and migration log.
-- `uploads/`: generated filenames only; original filenames are metadata.
-- `backups/`: admin-created zip snapshots.
+## Почему SQLite-first
 
-## Security model
+SQLite даёт простоту одного файла, но решает проблемы JSON-хранилища:
 
-- Passwords: PBKDF2-HMAC-SHA256 with per-user salt.
-- Sessions: server-side session records, cookie only contains session id + random token.
-- CSRF: synchronizer token for admin POST actions.
-- Uploads: extension allowlist, generated stored name, size limit, no execution from upload directory.
-- Search: every result is filtered through `CanRead` before it can be displayed.
+- транзакции;
+- индексы;
+- FTS5;
+- WAL;
+- нормальные миграции;
+- версии статей без раздувания одного JSON.
 
-## Scaling path
+PostgreSQL можно добавить позже через storage-интерфейс, но начинать с него не обязательно.
 
-- Replace JSON store with PostgreSQL.
-- Move uploads to S3/MinIO.
-- Replace built-in search with Meilisearch/OpenSearch.
-- Bundle Toast UI Editor locally instead of loading it from the CDN.
+## Пакеты
+
+```text
+cmd/docshub          точка входа
+internal/config      env-конфиг
+internal/db          SQLite и миграции
+internal/auth        Argon2id password hashing
+internal/markdownx   Markdown, sanitizer, wiki-links, tags
+internal/httpapp     HTTP routes, handlers, ACL checks
+internal/web         embedded templates/static
+```
+
+## Данные
+
+Основные таблицы:
+
+- `users`, `groups`, `group_members`;
+- `articles`;
+- `article_versions`;
+- `tags`, `article_tags`;
+- `links`;
+- `acl_users`, `acl_groups`;
+- `files`, `article_files`;
+- `sessions`;
+- `audit_events`;
+- `article_fts`.
+
+## Что делать дальше
+
+1. Добавить OIDC/SAML.
+2. Добавить нормальный UI управления группами и ACL.
+3. Добавить импорт Obsidian vault.
+4. Добавить вложения через content-addressed storage.
+5. Добавить comments/review workflow.
+6. Добавить WebSocket/CRDT только после стабилизации обычного editor flow.

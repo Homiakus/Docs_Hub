@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="workspace-panel narrow auth">
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  <form method="post" action="/login" class="u-stack" aria-label="Вход">
+    <input name="username" placeholder="Логин" autocomplete="username" autofocus>
+    <input name="password" type="password" placeholder="Пароль" autocomplete="current-password">
+    <button class="button primary">Войти</button>
+  </form>
+</section>
+{{end}}

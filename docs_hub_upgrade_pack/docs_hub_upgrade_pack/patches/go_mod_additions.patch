@@ -1,0 +1,11 @@
+diff --git a/go.mod b/go.mod
+--- a/go.mod
++++ b/go.mod
+@@
+ require (
+ 	github.com/charmbracelet/huh v1.0.0
+ 	github.com/charmbracelet/lipgloss v1.1.0
++	github.com/microcosm-cc/bluemonday v1.0.27
++	github.com/yuin/goldmark v1.7.8
++	modernc.org/sqlite v1.36.0
+ )

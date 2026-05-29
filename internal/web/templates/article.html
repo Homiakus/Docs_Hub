@@ -1,0 +1,34 @@
+{{define "content"}}
+<article class="doc-layout">
+  <section class="doc-main">
+    <div class="pagehead">
+      <div>
+        <p class="eyebrow">{{.Article.Visibility}} · {{.Article.UpdatedAt}}</p>
+        <h1>{{.Article.Title}}</h1>
+        <p class="u-muted"><code>{{.Article.Slug}}</code></p>
+      </div>
+      {{if .CanWrite}}<a class="button" href="{{editPath .Article.Slug}}">Редактировать</a>{{end}}
+    </div>
+    <div class="markdown">{{.Article.HTML}}</div>
+  </section>
+  <aside class="inspector">
+    <section>
+      <h2>История версий</h2>
+      <div class="timeline">
+        {{range .Versions}}
+          <article>
+            <span>v{{.VersionNo}}</span>
+            <strong>{{.Author}}</strong>
+            <p>{{.Summary}}</p>
+            <time>{{.CreatedAt}}</time>
+          </article>
+        {{else}}<p class="u-muted">Версий пока нет.</p>{{end}}
+      </div>
+    </section>
+    <section>
+      <h2>Backlinks</h2>
+      <div class="link-list">{{range .Backlinks}}<a href="{{articlePath .Slug}}">{{.Title}}</a>{{else}}<span class="u-muted">Нет обратных ссылок.</span>{{end}}</div>
+    </section>
+  </aside>
+</article>
+{{end}}
