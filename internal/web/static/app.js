@@ -1,4 +1,5 @@
 (() => {
+  // ---- Mobile navigation ----
   const navToggle = document.querySelector('.mobile-nav-toggle');
   const navClose = document.querySelector('.mobile-nav-close');
   const sidepanel = document.querySelector('.sidepanel');
@@ -20,6 +21,49 @@
     if (event.key === 'Escape') setNavOpen(false);
   });
 
+  // ---- Theme toggle ----
+  const themeToggle = document.getElementById('themeToggle');
+  const storedTheme = localStorage.getItem('docs-hub-theme');
+  if (storedTheme) {
+    document.documentElement.setAttribute('data-theme', storedTheme);
+    updateThemeIcon(storedTheme);
+  }
+  themeToggle?.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('docs-hub-theme', next);
+    updateThemeIcon(next);
+    // Re-render mermaid if present
+    if (window.mermaid && document.querySelector('.mermaid')) {
+      document.querySelectorAll('.mermaid').forEach(el => {
+        if (!el.hasAttribute('data-processed')) mermaid.run({ nodes: [el] });
+      });
+    }
+  });
+  function updateThemeIcon(theme) {
+    const icon = themeToggle?.querySelector('.theme-icon');
+    if (icon) icon.textContent = theme === 'light' ? '🌙' : '☀️';
+  }
+
+  // ---- Code copy buttons ----
+  document.querySelectorAll('.markdown pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.className = 'code-copy';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', () => {
+      const code = pre.querySelector('code');
+      if (!code) return;
+      navigator.clipboard.writeText(code.textContent || '').then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    });
+    pre.appendChild(btn);
+  });
+
+  // ---- Editor / preview ----
   const editor = document.getElementById('content');
   const preview = document.getElementById('preview');
   if (editor && preview) {
@@ -37,6 +81,10 @@
         return;
       }
       preview.innerHTML = await res.text();
+      // Re-run mermaid in preview
+      if (window.mermaid) {
+        preview.querySelectorAll('.mermaid:not([data-processed])').forEach(el => mermaid.run({ nodes: [el] }));
+      }
     };
     editor.addEventListener('input', debounce(render, 250));
     mediaPicker?.addEventListener('click', () => mediaInput?.click());
@@ -68,6 +116,8 @@
     });
     render();
   }
+
+  // ---- Graph ----
   if (window.DOCSHUB_GRAPH_ENDPOINT) {
     fetch(window.DOCSHUB_GRAPH_ENDPOINT).then(r=>r.json()).then(g => {
       const graph = document.getElementById('graph');
@@ -76,6 +126,27 @@
       window.addEventListener('resize', renderGraph);
     });
   }
+
+  // ---- Keyboard shortcuts ----
+  document.addEventListener('keydown', (event) => {
+    // Ctrl+S / Cmd+S: save (if editor focused)
+    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+      if (document.activeElement?.id === 'content') {
+        event.preventDefault();
+        document.querySelector('form.editor')?.submit();
+      }
+    }
+    // / — focus search (when not in input)
+    if (event.key === '/' && !event.ctrlKey && !event.metaKey) {
+      const tag = document.activeElement?.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+        event.preventDefault();
+        document.querySelector('.search input')?.focus();
+      }
+    }
+  });
+
+  // ---- Helpers ----
   function debounce(fn, ms){let t;return()=>{clearTimeout(t);t=setTimeout(fn,ms)}}
   function hasFiles(event){
     return Array.from(event.dataTransfer?.types || []).includes('Files');
@@ -138,11 +209,15 @@
   function drawGraph(el, g){
     if(!el) return;
     const nodes = g.nodes || [], links = g.links || [];
-    const svgNS='http://www.w3.org/2000/svg', w=el.clientWidth||900,h=el.clientHeight||500;
-    const svg=document.createElementNS(svgNS,'svg'); svg.setAttribute('viewBox',`0 0 ${w} ${h}`); svg.style.width='100%'; svg.style.height='60vh'; el.innerHTML=''; el.appendChild(svg);
+    const w=el.clientWidth||900,h=el.clientHeight||500;
+    const svgNS='http://www.w3.org/2000/svg';
+    const svg=document.createElementNS(svgNS,'svg');
+    svg.setAttribute('viewBox',`0 0 ${w} ${h}`);
+    svg.style.width='100%'; svg.style.height='60vh';
+    el.innerHTML=''; el.appendChild(svg);
     const pos = new Map(nodes.map((n,i)=>[n.id,{x:w/2+Math.cos(i/nodes.length*6.28)*w*.32,y:h/2+Math.sin(i/nodes.length*6.28)*h*.32}]));
-    links.forEach(l=>{const a=pos.get(l.source),b=pos.get(l.target); if(!a||!b)return; const line=document.createElementNS(svgNS,'line'); line.setAttribute('x1',a.x);line.setAttribute('y1',a.y);line.setAttribute('x2',b.x);line.setAttribute('y2',b.y);line.setAttribute('stroke','rgba(67,232,199,.34)');svg.appendChild(line)});
-    nodes.forEach(n=>{const p=pos.get(n.id); const a=document.createElementNS(svgNS,'a'); a.setAttribute('href','/a/'+encodeURIComponent(n.id)); const c=document.createElementNS(svgNS,'circle'); c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r',w < 520 ? 14 : 18);c.setAttribute('fill','#43e8c7'); const t=document.createElementNS(svgNS,'text'); t.setAttribute('x',p.x);t.setAttribute('y',p.y+(w < 520 ? 28 : 34));t.setAttribute('text-anchor','middle');t.setAttribute('fill','#f4f1ff');t.setAttribute('font-size',w < 520 ? '11' : '13');t.textContent=shortLabel(n.label, w < 520 ? 16 : 28); a.appendChild(c);a.appendChild(t);svg.appendChild(a)});
+    links.forEach(l=>{const a=pos.get(l.source),b=pos.get(l.target); if(!a||!b)return; const line=document.createElementNS(svgNS,'line'); line.setAttribute('x1',a.x);line.setAttribute('y1',a.y);line.setAttribute('x2',b.x);line.setAttribute('y2',b.y);line.setAttribute('stroke','var(--line-strong, rgba(67,232,199,.34))');svg.appendChild(line)});
+    nodes.forEach(n=>{const p=pos.get(n.id); const a=document.createElementNS(svgNS,'a'); a.setAttribute('href','/a/'+encodeURIComponent(n.id)); const c=document.createElementNS(svgNS,'circle'); c.setAttribute('cx',p.x);c.setAttribute('cy',p.y);c.setAttribute('r',w < 520 ? 14 : 18);c.setAttribute('fill','var(--accent, #43e8c7)'); const t=document.createElementNS(svgNS,'text'); t.setAttribute('x',p.x);t.setAttribute('y',p.y+(w < 520 ? 28 : 34));t.setAttribute('text-anchor','middle');t.setAttribute('fill','var(--text, #f4f1ff)');t.setAttribute('font-size',w < 520 ? '11' : '13');t.textContent=shortLabel(n.label, w < 520 ? 16 : 28); a.appendChild(c);a.appendChild(t);svg.appendChild(a)});
   }
   function shortLabel(value, limit){
     const text = String(value || '');

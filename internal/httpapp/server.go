@@ -59,6 +59,9 @@ type Article struct {
 	CategoryID int64
 	Category   string
 	UpdatedAt  string
+	HasMermaid bool
+	Headings   []markdownx.Heading
+	Tags       []string
 }
 
 type Category struct {
@@ -897,6 +900,13 @@ func (s *Server) getArticle(ctx context.Context, slug string) (Article, error) {
 	var html string
 	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,'') FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category)
 	a.HTML = template.HTML(html)
+	if a.Content != "" {
+		if res, renderErr := markdownx.Render(a.Content); renderErr == nil {
+			a.HasMermaid = res.Mermaid
+			a.Headings = res.Headings
+			a.Tags = res.Tags
+		}
+	}
 	return a, err
 }
 

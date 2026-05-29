@@ -3,14 +3,27 @@
   <section class="doc-main">
     <div class="pagehead">
       <div>
-        <p class="eyebrow">{{.Article.Visibility}} · {{.Article.UpdatedAt}}</p>
+        <p class="eyebrow">{{.Article.Visibility}} · {{.Article.UpdatedAt}}{{if .Article.Tags}} · {{range .Article.Tags}}<span class="tag-chip">#{{.}}</span>{{end}}{{end}}</p>
         <h1>{{.Article.Title}}</h1>
         <p class="u-muted"><code>{{.Article.Slug}}</code></p>
       </div>
       {{if .CanWrite}}<a class="button" href="{{editPath .Article.Slug}}">Редактировать</a>{{end}}
     </div>
+
+    {{if .Article.Headings}}
+    <details class="toc" open>
+      <summary>Содержание</summary>
+      <nav>
+        {{range .Article.Headings}}
+        <a href="#{{.ID}}" class="toc-{{.Level}}">{{.Text}}</a>
+        {{end}}
+      </nav>
+    </details>
+    {{end}}
+
     <div class="markdown">{{.Article.HTML}}</div>
   </section>
+
   <aside class="inspector">
     <section>
       <h2>История версий</h2>

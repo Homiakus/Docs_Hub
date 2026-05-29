@@ -15,9 +15,11 @@ import (
 )
 
 type Result struct {
-	HTML  string
-	Tags  []string
-	Links []WikiLink
+	HTML     string
+	Tags     []string
+	Links    []WikiLink
+	Mermaid  bool
+	Headings []Heading
 }
 
 type WikiLink struct {
@@ -25,13 +27,28 @@ type WikiLink struct {
 	Label string
 }
 
+type Heading struct {
+	Level int
+	ID    string
+	Text  string
+}
+
 var (
-	tagRe  = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
-	linkRe = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
+	tagRe     = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
+	linkRe    = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
+	mermaidRe = regexp.MustCompile("(?s)```mermaid\\s*\\n(.*?)```")
+	headingRe = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
 )
 
 func Render(source string) (Result, error) {
+	hasMermaid := mermaidRe.MatchString(source)
+
+	// Replace mermaid blocks with placeholder divs before markdown processing
 	prepared := ReplaceWikiLinks(source)
+	if hasMermaid {
+		prepared = mermaidRe.ReplaceAllString(prepared, `<div class="mermaid">$1</div>`)
+	}
+
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM, extension.Typographer, highlighting.NewHighlighting()),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
@@ -41,6 +58,12 @@ func Render(source string) (Result, error) {
 	if err := md.Convert([]byte(prepared), &buf); err != nil {
 		return Result{}, err
 	}
+
+	htmlStr := buf.String()
+
+	// Extract headings for table of contents
+	headings := extractHeadings(htmlStr)
+
 	policy := bluemonday.UGCPolicy()
 	policy.AllowRelativeURLs(true)
 	policy.AllowAttrs("class").OnElements("code", "pre", "span", "div")
@@ -51,7 +74,14 @@ func Render(source string) (Result, error) {
 	policy.AllowAttrs("src", "title", "controls", "preload").OnElements("audio", "video")
 	policy.AllowAttrs("poster").OnElements("video")
 	policy.AllowAttrs("src", "type").OnElements("source")
-	return Result{HTML: policy.Sanitize(buf.String()), Tags: ExtractTags(source), Links: ExtractWikiLinks(source)}, nil
+
+	return Result{
+		HTML:     policy.Sanitize(htmlStr),
+		Tags:     ExtractTags(source),
+		Links:    ExtractWikiLinks(source),
+		Mermaid:  hasMermaid,
+		Headings: headings,
+	}, nil
 }
 
 func ReplaceWikiLinks(s string) string {
@@ -103,6 +133,27 @@ func Slugify(s string) string {
 	s = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`).ReplaceAllString(s, "")
 	s = regexp.MustCompile(`-+`).ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
+}
+
+func extractHeadings(html string) []Heading {
+	var out []Heading
+	matches := headingRe.FindAllStringSubmatch(html, -1)
+	for _, m := range matches {
+		if len(m) >= 4 {
+			level := 2
+			if m[1] == "3" {
+				level = 3
+			} else if m[1] == "4" {
+				level = 4
+			}
+			out = append(out, Heading{Level: level, ID: m[2], Text: stripTags(m[3])})
+		}
+	}
+	return out
+}
+
+func stripTags(s string) string {
+	return regexp.MustCompile(`<[^>]+>`).ReplaceAllString(s, "")
 }
 
 func keys(m map[string]struct{}) []string {

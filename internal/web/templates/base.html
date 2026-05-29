@@ -1,12 +1,16 @@
 {{define "base"}}
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · {{.SiteName}}</title>
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
+  {{if .Article.HasMermaid}}
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{mermaid.initialize({startOnLoad:true,theme:'dark',securityLevel:'loose'})})</script>
+  {{end}}
 </head>
 <body class="{{if not .User}}auth-page{{end}}">
 {{if .User}}
@@ -49,6 +53,11 @@
         </article>
       {{else}}<p class="side-empty">История пуста.</p>{{end}}
     </section>
+    <div class="side-footer">
+      <button class="theme-toggle" id="themeToggle" aria-label="Переключить тему" title="Светлая/тёмная тема">
+        <span class="theme-icon">☀️</span>
+      </button>
+    </div>
   </aside>
   <section class="app-main">
     <header class="topbar">
@@ -57,7 +66,7 @@
         <span aria-hidden="true"></span>
         <span aria-hidden="true"></span>
       </button>
-      <form class="search" action="/" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug"></form>
+      <form class="search" action="/" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug" accesskey="s"></form>
       <div class="top-actions">
         {{if .User}}<span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span><a class="button primary" href="/new">Создать</a>{{else}}<a class="button primary" href="/login">Войти</a>{{end}}
       </div>
