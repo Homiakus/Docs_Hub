@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -151,6 +152,9 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.withUser)
+	if s.cfg.RateLimit.Enabled {
+		r.Use(s.rateLimiter())
+	}
 	r.Handle("/static/*", http.FileServerFS(web.FS))
 	r.Get("/healthz", s.health)
 	r.Get("/login", s.loginForm)
@@ -831,7 +835,20 @@ func (s *Server) adminDownloadBackup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "app": "docshub-next", "time": time.Now().UTC()})
+	dbOK := s.db.PingContext(r.Context()) == nil
+	status := "ok"
+	httpStatus := 200
+	if !dbOK {
+		status = "degraded"
+		httpStatus = 503
+	}
+	w.WriteHeader(httpStatus)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": status,
+		"app":    "docshub-next",
+		"time":   time.Now().UTC(),
+		"db":     dbOK,
+	})
 }
 
 func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article, error) {
@@ -1667,4 +1684,60 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// rateLimiter returns a simple token-bucket rate limiting middleware.
+// Uses in-memory per-IP tracking; for multi-instance deployments, replace
+// with Redis-backed rate limiter.
+func (s *Server) rateLimiter() func(http.Handler) http.Handler {
+	type bucket struct {
+		tokens   float64
+		lastSeen time.Time
+	}
+	var (
+		mu      sync.Mutex
+		buckets = map[string]*bucket{}
+	)
+	rate := float64(s.cfg.RateLimit.RequestsPerMin) / 60.0 // tokens per second
+	burst := float64(s.cfg.RateLimit.Burst)
+
+	// Cleanup goroutine
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			mu.Lock()
+			now := time.Now()
+			for ip, b := range buckets {
+				if now.Sub(b.lastSeen) > 10*time.Minute {
+					delete(buckets, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			mu.Lock()
+			b, ok := buckets[ip]
+			if !ok {
+				b = &bucket{tokens: burst, lastSeen: time.Now()}
+				buckets[ip] = b
+			}
+			now := time.Now()
+			elapsed := now.Sub(b.lastSeen).Seconds()
+			b.tokens = min(burst, b.tokens+elapsed*rate)
+			b.lastSeen = now
+			if b.tokens < 1 {
+				mu.Unlock()
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				return
+			}
+			b.tokens--
+			mu.Unlock()
+			next.ServeHTTP(w, r)
+		})
+	}
 }

@@ -2,14 +2,28 @@ services:
   docshub:
     build: .
     ports:
-      - "8080:8080"
+      - "${ADDR:-8080}:8080"
     environment:
       ADDR: ":8080"
       DATA_DIR: "/data"
-      SITE_NAME: "Docs Hub Next"
-      ADMIN_USER: "admin"
-      ADMIN_PASSWORD: "change-me-now"
-      SESSION_SECRET: "replace-with-32-random-bytes"
+      SITE_NAME: "${SITE_NAME:-Docs Hub Next}"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET is required}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      RATE_LIMIT_ENABLED: "${RATE_LIMIT_ENABLED:-true}"
+      RATE_LIMIT_RPM: "${RATE_LIMIT_RPM:-60}"
+      RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-10}"
+      TLS_ENABLED: "${TLS_ENABLED:-0}"
+      TLS_CERT_FILE: "${TLS_CERT_FILE:-}"
+      TLS_KEY_FILE: "${TLS_KEY_FILE:-}"
     volumes:
       - ./data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
