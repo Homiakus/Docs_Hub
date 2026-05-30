@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
 	"github.com/homiakus/docshub-next/internal/httpapp"
@@ -18,6 +20,9 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Load .env file (ignore error if file doesn't exist — env vars can come from system/docker)
+	_ = godotenv.Load()
 
 	cfg := config.Load()
 	if err := cfg.Validate(); err != nil {
