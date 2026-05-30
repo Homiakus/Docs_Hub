@@ -1,6 +1,9 @@
 package markdownx
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRenderMermaidBlock(t *testing.T) {
 	src := "# Title\n\n```mermaid\ngraph TD\n  A --> B\n```\n\nEnd."
@@ -51,6 +54,25 @@ func TestRenderWikiLinks(t *testing.T) {
 	}
 	if len(res.Links) < 2 {
 		t.Errorf("expected at least 2 links, got %d: %+v", len(res.Links), res.Links)
+	}
+}
+
+func TestRenderWikiLinksWithAnchor(t *testing.T) {
+	src := "See [[Getting Started#Installation]] and [[API#auth|auth docs]]."
+	res, err := Render(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Links) < 2 {
+		t.Errorf("expected at least 2 links, got %d: %+v", len(res.Links), res.Links)
+	}
+	// First link should have anchor preserved
+	if !strings.Contains(res.HTML, `/a/getting-started#Installation`) {
+		t.Errorf("expected anchor #Installation in link, got HTML: %s", res.HTML)
+	}
+	// Second link should have alias and anchor
+	if !strings.Contains(res.HTML, `>auth docs</a>`) && !strings.Contains(res.HTML, `auth docs`) {
+		t.Errorf("expected label 'auth docs', got HTML: %s", res.HTML)
 	}
 }
 

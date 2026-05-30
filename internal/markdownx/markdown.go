@@ -34,10 +34,10 @@ type Heading struct {
 }
 
 var (
-	tagRe     = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
-	linkRe    = regexp.MustCompile(`\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
-	mermaidRe = regexp.MustCompile("(?s)```mermaid\\s*\\n(.*?)```")
-	headingRe = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
+	tagRe      = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
+	linkRe     = regexp.MustCompile(`\[\[([^\]|#]+)(#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
+	mermaidRe  = regexp.MustCompile("(?s)```mermaid\\s*\\n(.*?)```")
+	headingRe  = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
 )
 
 func Render(source string) (Result, error) {
@@ -91,11 +91,12 @@ func ReplaceWikiLinks(s string) string {
 			return raw
 		}
 		slug := Slugify(m[1])
-		label := strings.TrimSpace(m[2])
+		label := strings.TrimSpace(m[3])
+		anchor := m[2] // "#heading" or ""
 		if label == "" {
 			label = strings.TrimSpace(m[1])
 		}
-		return "[" + label + "](/a/" + slug + ")"
+		return "[" + label + "](/a/" + slug + anchor + ")"
 	})
 }
 
@@ -114,7 +115,7 @@ func ExtractWikiLinks(s string) []WikiLink {
 	seen := map[string]WikiLink{}
 	for _, m := range linkRe.FindAllStringSubmatch(s, -1) {
 		slug := Slugify(m[1])
-		label := strings.TrimSpace(m[2])
+		label := strings.TrimSpace(m[3])
 		if slug != "" {
 			seen[slug+"\x00"+label] = WikiLink{Slug: slug, Label: label}
 		}

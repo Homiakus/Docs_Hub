@@ -178,5 +178,14 @@
       {{else}}<p class="u-muted">Бэкапов пока нет.</p>{{end}}
     </div>
   </section>
+
+  <section class="admin-section">
+    <h2>Импорт Obsidian vault</h2>
+    <p class="u-muted">Загрузите .zip архив вашего Obsidian хранилища. Все .md файлы станут статьями, изображения и вложения будут загружены автоматически. Wiki-ссылки [[...]] конвертируются в ссылки DocsHub.</p>
+    <form class="admin-form" method="post" action="/admin/import-obsidian" enctype="multipart/form-data">
+      <input type="file" name="vault" accept=".zip" required>
+      <button class="button primary" type="submit">Импортировать</button>
+    </form>
+  </section>
 </section>
 {{end}}

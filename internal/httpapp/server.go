@@ -1,6 +1,8 @@
 package httpapp
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -181,6 +183,7 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/admin/categories", s.requireAdmin(s.adminSaveCategory))
 	r.Post("/admin/backups", s.requireAdmin(s.adminBackupAction))
 	r.Get("/admin/backups/{name}", s.requireAdmin(s.adminDownloadBackup))
+	r.Post("/admin/import-obsidian", s.requireAdmin(s.importObsidian))
 	return r
 }
 
@@ -834,6 +837,224 @@ func (s *Server) adminDownloadBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.backupDir(), name))
+}
+
+func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 128<<20) // 128MB limit
+	if err := r.ParseMultipartForm(128 << 20); err != nil {
+		s.redirectAdmin(w, r, "", "архив слишком большой или повреждён")
+		return
+	}
+	file, header, err := r.FormFile("vault")
+	if err != nil {
+		s.redirectAdmin(w, r, "", "файл vault обязателен")
+		return
+	}
+	defer file.Close()
+
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+		s.redirectAdmin(w, r, "", "ожидается .zip архив Obsidian хранилища")
+		return
+	}
+
+	// Read entire ZIP into memory (125MB cap via MaxBytesReader)
+	data, err := io.ReadAll(file)
+	if err != nil {
+		s.redirectAdmin(w, r, "", "не удалось прочитать архив: "+err.Error())
+		return
+	}
+
+	zipReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		s.redirectAdmin(w, r, "", "некорректный zip-архив: "+err.Error())
+		return
+	}
+
+	u := userFrom(r.Context())
+	now := time.Now().UTC().Format(time.RFC3339)
+	var importedFiles, importedArticles int
+
+	// First pass: collect all files, split into attachments and markdown
+	type zipEntry struct {
+		Name    string
+		Content []byte
+	}
+	var attachments []zipEntry
+	var markdownFiles []zipEntry
+
+	for _, f := range zipReader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		// Skip hidden files and MacOS resource forks
+		base := filepath.Base(f.Name)
+		if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "__MACOSX") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(io.LimitReader(rc, 10<<20)) // 10MB per file
+		rc.Close()
+		if err != nil || len(content) == 0 {
+			continue
+		}
+
+		ext := strings.ToLower(filepath.Ext(f.Name))
+		if ext == ".md" {
+			markdownFiles = append(markdownFiles, zipEntry{Name: f.Name, Content: content})
+		} else if isMediaFile(ext) {
+			attachments = append(attachments, zipEntry{Name: f.Name, Content: content})
+		}
+	}
+
+	// Upload all attachments, build filename→URL map
+	attachMap := make(map[string]string) // original filename → /uploads/key
+	for _, a := range attachments {
+		mimeType := detectMediaMIME(a.Name, "", a.Content)
+		if mimeType == "" {
+			continue
+		}
+		if mediaKind(mimeType) == "" {
+			continue
+		}
+		sum := sha256.Sum256(a.Content)
+		sha := hex.EncodeToString(sum[:])
+		ext := safeMediaExt(a.Name, mimeType)
+		storageKey := sha + ext
+
+		if err := os.MkdirAll(s.cfg.UploadDir, 0o750); err != nil {
+			continue
+		}
+		diskPath := filepath.Join(s.cfg.UploadDir, storageKey)
+		if _, err := os.Stat(diskPath); errors.Is(err, os.ErrNotExist) {
+			if err := os.WriteFile(diskPath, a.Content, 0o640); err != nil {
+				continue
+			}
+		}
+		_, _ = s.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO files(sha256, storage_key, original_name, mime, size_bytes, uploaded_by, created_at) VALUES(?,?,?,?,?,?,?)`,
+			sha, storageKey, filepath.Base(a.Name), mimeType, len(a.Content), u.ID, now)
+		attachMap[filepath.Base(a.Name)] = "/uploads/" + url.PathEscape(storageKey)
+		importedFiles++
+	}
+
+	// Obsidian embed regex: ![[filename.png]] or ![[filename.png|300]]
+	embedRe := regexp.MustCompile(`!\[\[([^\]|]+)(?:\|(\d+))?\]\]`)
+
+	// Second pass: import markdown files as articles
+	for _, mf := range markdownFiles {
+		content := string(mf.Content)
+		title := strings.TrimSuffix(filepath.Base(mf.Name), ".md")
+
+		// Replace ![[file]] embeds with proper markdown or HTML
+		content = embedRe.ReplaceAllStringFunc(content, func(raw string) string {
+			parts := embedRe.FindStringSubmatch(raw)
+			if len(parts) == 0 {
+				return raw
+			}
+			filename := strings.TrimSpace(parts[1])
+			width := parts[2]
+			if url, ok := attachMap[filename]; ok {
+				if width != "" {
+					return fmt.Sprintf(`<img src="%s" width="%s" alt="%s">`, url, width, filename)
+				}
+				return fmt.Sprintf("![%s](%s)", filename, url)
+			}
+			// Attachment not found in vault — leave as plain text link
+			return fmt.Sprintf("[📎 %s](%s)", filename, filename)
+		})
+
+		res, err := markdownx.Render(content)
+		if err != nil {
+			s.log.Warn("obsidian import render", "file", mf.Name, "err", err)
+			continue
+		}
+
+		slug := markdownx.Slugify(title)
+		if slug == "" {
+			slug = "obsidian-" + markdownx.Slugify(filepath.Base(mf.Name))
+		}
+
+		tx, err := s.db.BeginTx(r.Context(), nil)
+		if err != nil {
+			continue
+		}
+
+		slug, _ = s.uniqueSlug(r.Context(), tx, 0, slug)
+
+		result, err := tx.ExecContext(r.Context(),
+			`INSERT INTO articles(slug,title,content,rendered_html,owner_id,visibility,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+			slug, title, content, res.HTML, u.ID, "authenticated", now, now)
+		if err != nil {
+			tx.Rollback()
+			s.log.Warn("obsidian import insert", "file", mf.Name, "err", err)
+			continue
+		}
+
+		articleID, _ := result.LastInsertId()
+
+		// Save version 1
+		_, _ = tx.ExecContext(r.Context(),
+			`INSERT INTO article_versions(article_id, version_no, title, content, rendered_html, author_id, created_at) VALUES(?,1,?,?,?,?,?)`,
+			articleID, title, content, res.HTML, u.ID, now)
+
+		// Save tags
+		for _, tag := range res.Tags {
+			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag)
+			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, articleID, tag)
+		}
+
+		// Save wiki links
+		for _, l := range res.Links {
+			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, articleID, l.Slug, l.Label)
+		}
+
+		// Associate attachments with the article
+		attachKeys := extractUploadKeys(content)
+		for _, key := range attachKeys {
+			var fileID int64
+			if err := tx.QueryRowContext(r.Context(), `SELECT id FROM files WHERE storage_key=?`, key).Scan(&fileID); err == nil {
+				_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, articleID, fileID, "inline")
+			}
+		}
+
+		// FTS index
+		tags := articleSearchTags(res.Tags, "", "")
+		_, _ = tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, articleID)
+		_, _ = tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, articleID, title, slug, content, strings.Join(tags, " "))
+
+		// Audit
+		metadata, _ := json.Marshal(map[string]any{
+			"version": 1,
+			"summary": "Импортировано из Obsidian vault: " + mf.Name,
+			"slug":    slug,
+			"title":   title,
+		})
+		_, _ = tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`,
+			u.ID, "obsidian.import", "article", fmt.Sprint(articleID), clientIP(r), string(metadata), now)
+
+		if err := tx.Commit(); err != nil {
+			tx.Rollback()
+			continue
+		}
+		importedArticles++
+	}
+
+	s.redirectAdmin(w, r,
+		fmt.Sprintf("Obsidian vault импортирован: %d статей, %d файлов", importedArticles, importedFiles),
+		"")
+}
+
+func isMediaFile(ext string) bool {
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp",
+		".mp3", ".wav", ".ogg", ".flac", ".m4a",
+		".mp4", ".webm", ".mov", ".avi",
+		".pdf":
+		return true
+	}
+	return false
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
