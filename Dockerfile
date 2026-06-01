@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM golang:1.23 AS build
+FROM golang:1.25 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -23,6 +23,4 @@ EXPOSE 8080
 USER nonroot:nonroot
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/app/docshub"] || exit 1
-
-ENTRYPOINT ["/app/docshub"]
+    CMD ["wget", "--spider", "--quiet", "http://localhost:8080/healthz"]

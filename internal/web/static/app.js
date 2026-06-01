@@ -46,6 +46,15 @@
     if (icon) icon.textContent = theme === 'light' ? '🌙' : '☀️';
   }
 
+  // ---- Table wrapping (scrollable containers) ----
+  document.querySelectorAll('.markdown table').forEach(table => {
+    if (table.closest('.table-wrap')) return; // already wrapped
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+
   // ---- Code copy buttons ----
   document.querySelectorAll('.markdown pre').forEach(pre => {
     const btn = document.createElement('button');

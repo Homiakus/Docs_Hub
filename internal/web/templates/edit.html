@@ -1,6 +1,7 @@
 {{define "content"}}
 <form class="editor workspace-panel" method="post" action="/save">
   <input type="hidden" name="id" value="{{.Article.ID}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <div class="pagehead">
     <div>
       <p class="eyebrow">Редактор</p>

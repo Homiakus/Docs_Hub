@@ -20,7 +20,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/db"
 )
 
-func newTestApp(t *testing.T) (*httptest.Server, *http.Client) {
+func newTestApp(t *testing.T) (*httptest.Server, *http.Client, *db.DB) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -52,10 +52,11 @@ func newTestApp(t *testing.T) (*httptest.Server, *http.Client) {
 			return http.ErrUseLastResponse
 		},
 	}
-	return httptest.NewServer(app.Routes()), client
+	return httptest.NewServer(app.Routes()), client, database
 }
 
-func loginTestUser(t *testing.T, client *http.Client, baseURL string) {
+// loginTestUser logs in as admin and returns the CSRF token from the session.
+func loginTestUser(t *testing.T, client *http.Client, baseURL string, database *db.DB) string {
 	t.Helper()
 	res, err := client.PostForm(baseURL+"/login", url.Values{
 		"username": {"admin"},
@@ -68,10 +69,28 @@ func loginTestUser(t *testing.T, client *http.Client, baseURL string) {
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("login status = %d, want %d", res.StatusCode, http.StatusSeeOther)
 	}
+	// Extract session ID from cookie, query CSRF token from DB
+	url, _ := url.Parse(baseURL)
+	for _, c := range client.Jar.Cookies(url) {
+		if c.Name == "dh_session" {
+			sid := strings.SplitN(c.Value, ".", 2)[0]
+			var csrf string
+			err := database.QueryRowContext(context.Background(), `SELECT csrf_token FROM sessions WHERE id=?`, sid).Scan(&csrf)
+			if err != nil {
+				t.Fatalf("query csrf_token: %v", err)
+			}
+			return csrf
+		}
+	}
+	t.Fatal("dh_session cookie not found after login")
+	return ""
 }
 
-func saveArticle(t *testing.T, client *http.Client, baseURL string, form url.Values) string {
+func saveArticle(t *testing.T, client *http.Client, baseURL string, form url.Values, csrf string) string {
 	t.Helper()
+	if csrf != "" {
+		form.Set("csrf_token", csrf)
+	}
 	res, err := client.PostForm(baseURL+"/save", form)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +115,7 @@ type uploadedMedia struct {
 	Markdown string `json:"markdown"`
 }
 
-func uploadTestMedia(t *testing.T, client *http.Client, baseURL, filename, contentType string) uploadedMedia {
+func uploadTestMedia(t *testing.T, client *http.Client, baseURL, filename, contentType, csrf string) uploadedMedia {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -118,6 +137,9 @@ func uploadTestMedia(t *testing.T, client *http.Client, baseURL, filename, conte
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if csrf != "" {
+		req.Header.Set("X-CSRF-Token", csrf)
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +157,7 @@ func uploadTestMedia(t *testing.T, client *http.Client, baseURL, filename, conte
 }
 
 func TestAnonymousUsersOnlySeeLogin(t *testing.T) {
-	ts, client := newTestApp(t)
+	ts, client, _ := newTestApp(t)
 	defer ts.Close()
 
 	for _, path := range []string{"/", "/new", "/admin"} {
@@ -175,16 +197,16 @@ func TestAnonymousUsersOnlySeeLogin(t *testing.T) {
 }
 
 func TestSavedUnicodeArticleOpensFromRedirectLocation(t *testing.T) {
-	ts, client := newTestApp(t)
+	ts, client, database := newTestApp(t)
 	defer ts.Close()
-	loginTestUser(t, client, ts.URL)
+	csrf := loginTestUser(t, client, ts.URL, database)
 
 	loc := saveArticle(t, client, ts.URL, url.Values{
 		"slug":       {""},
 		"title":      {"Русская статья"},
 		"visibility": {"authenticated"},
 		"content":    {"# Привет"},
-	})
+	}, csrf)
 	if !strings.Contains(loc, "%") {
 		t.Fatalf("Location %q should be path-escaped for unicode slug", loc)
 	}
@@ -204,9 +226,9 @@ func TestSavedUnicodeArticleOpensFromRedirectLocation(t *testing.T) {
 }
 
 func TestSaveArticleAllocatesFallbackSlug(t *testing.T) {
-	ts, client := newTestApp(t)
+	ts, client, database := newTestApp(t)
 	defer ts.Close()
-	loginTestUser(t, client, ts.URL)
+	csrf := loginTestUser(t, client, ts.URL, database)
 
 	form := url.Values{
 		"slug":       {""},
@@ -214,8 +236,8 @@ func TestSaveArticleAllocatesFallbackSlug(t *testing.T) {
 		"visibility": {"authenticated"},
 		"content":    {"empty title"},
 	}
-	first := saveArticle(t, client, ts.URL, form)
-	second := saveArticle(t, client, ts.URL, form)
+	first := saveArticle(t, client, ts.URL, form, csrf)
+	second := saveArticle(t, client, ts.URL, form, csrf)
 
 	if first != "/a/article" {
 		t.Fatalf("first fallback Location = %q, want /a/article", first)
@@ -226,14 +248,14 @@ func TestSaveArticleAllocatesFallbackSlug(t *testing.T) {
 }
 
 func TestUploadedMediaRendersInSavedArticle(t *testing.T) {
-	ts, client := newTestApp(t)
+	ts, client, database := newTestApp(t)
 	defer ts.Close()
-	loginTestUser(t, client, ts.URL)
+	csrf := loginTestUser(t, client, ts.URL, database)
 
 	media := []uploadedMedia{
-		uploadTestMedia(t, client, ts.URL, "diagram.png", "image/png"),
-		uploadTestMedia(t, client, ts.URL, "briefing.mp3", "audio/mpeg"),
-		uploadTestMedia(t, client, ts.URL, "demo.mp4", "video/mp4"),
+		uploadTestMedia(t, client, ts.URL, "diagram.png", "image/png", csrf),
+		uploadTestMedia(t, client, ts.URL, "briefing.mp3", "audio/mpeg", csrf),
+		uploadTestMedia(t, client, ts.URL, "demo.mp4", "video/mp4", csrf),
 	}
 	var snippets []string
 	for _, item := range media {
@@ -248,7 +270,7 @@ func TestUploadedMediaRendersInSavedArticle(t *testing.T) {
 		"title":      {"Media Page"},
 		"visibility": {"authenticated"},
 		"content":    {strings.Join(snippets, "\n\n")},
-	})
+	}, csrf)
 	res, err := client.Get(ts.URL + loc)
 	if err != nil {
 		t.Fatal(err)
@@ -275,9 +297,9 @@ func TestUploadedMediaRendersInSavedArticle(t *testing.T) {
 }
 
 func TestAdminCanCreateCategoryAndEditorShowsSelector(t *testing.T) {
-	ts, client := newTestApp(t)
+	ts, client, database := newTestApp(t)
 	defer ts.Close()
-	loginTestUser(t, client, ts.URL)
+	csrf := loginTestUser(t, client, ts.URL, database)
 
 	res, err := client.Get(ts.URL + "/admin")
 	if err != nil {
@@ -292,12 +314,16 @@ func TestAdminCanCreateCategoryAndEditorShowsSelector(t *testing.T) {
 		t.Fatalf("admin page should render management UI: %s", body)
 	}
 
-	res, err = client.PostForm(ts.URL+"/admin/categories", url.Values{
+	categoryForm := url.Values{
 		"name":       {"Процессы"},
 		"slug":       {"processes"},
 		"nav_order":  {"10"},
 		"is_visible": {"1"},
-	})
+	}
+	if csrf != "" {
+		categoryForm.Set("csrf_token", csrf)
+	}
+	res, err = client.PostForm(ts.URL+"/admin/categories", categoryForm)
 	if err != nil {
 		t.Fatal(err)
 	}

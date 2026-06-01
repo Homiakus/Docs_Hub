@@ -2,6 +2,7 @@ package markdownx
 
 import (
 	"bytes"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -34,10 +35,13 @@ type Heading struct {
 }
 
 var (
-	tagRe      = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
-	linkRe     = regexp.MustCompile(`\[\[([^\]|#]+)(#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
-	mermaidRe  = regexp.MustCompile("(?s)```mermaid\\s*\\n(.*?)```")
-	headingRe  = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
+	tagRe       = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
+	linkRe      = regexp.MustCompile(`\[\[([^\]|#]+)(#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
+	mermaidRe   = regexp.MustCompile("(?s)```mermaid\\s*\\n([\\s\\S]{0,1000}?)```")
+	headingRe   = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
+	slugifyRe1  = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
+	slugifyRe2  = regexp.MustCompile(`-+`)
+	stripTagsRe = regexp.MustCompile(`<[^>]+>`)
 )
 
 func Render(source string) (Result, error) {
@@ -93,6 +97,9 @@ func ReplaceWikiLinks(s string) string {
 		slug := Slugify(m[1])
 		label := strings.TrimSpace(m[3])
 		anchor := m[2] // "#heading" or ""
+		if anchor != "" {
+			anchor = "#" + url.PathEscape(anchor[1:])
+		}
 		if label == "" {
 			label = strings.TrimSpace(m[1])
 		}
@@ -131,8 +138,8 @@ func ExtractWikiLinks(s string) []WikiLink {
 func Slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.ReplaceAll(s, " ", "-")
-	s = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`).ReplaceAllString(s, "")
-	s = regexp.MustCompile(`-+`).ReplaceAllString(s, "-")
+	s = slugifyRe1.ReplaceAllString(s, "")
+	s = slugifyRe2.ReplaceAllString(s, "-")
 	return strings.Trim(s, "-")
 }
 
@@ -154,7 +161,7 @@ func extractHeadings(html string) []Heading {
 }
 
 func stripTags(s string) string {
-	return regexp.MustCompile(`<[^>]+>`).ReplaceAllString(s, "")
+	return stripTagsRe.ReplaceAllString(s, "")
 }
 
 func keys(m map[string]struct{}) []string {

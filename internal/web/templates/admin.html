@@ -7,6 +7,7 @@
     </div>
     <form method="post" action="/admin/backups">
       <input type="hidden" name="action" value="create">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <button class="button primary" type="submit">Создать бэкап</button>
     </form>
   </div>
@@ -23,6 +24,7 @@
     <section class="admin-section">
       <h2>Новый пользователь</h2>
       <form class="admin-form" method="post" action="/admin/users">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <input name="username" placeholder="login" required>
         <input name="display_name" placeholder="Имя">
         <input name="email" placeholder="email">
@@ -47,6 +49,7 @@
       {{range .AdminUsers}}
       <form class="admin-rowform" method="post" action="/admin/users">
         <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <input name="username" value="{{.Username}}" aria-label="Логин">
         <input name="display_name" value="{{.DisplayName}}" aria-label="Имя">
         <input name="email" value="{{.Email}}" aria-label="Email">
@@ -63,6 +66,7 @@
       </form>
       <form class="admin-password" method="post" action="/admin/users/password">
         <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <input name="password" type="password" placeholder="Новый пароль для {{.Username}}" required>
         <button class="button ghost" type="submit">Сменить пароль</button>
       </form>
@@ -73,6 +77,7 @@
   <section class="admin-section">
     <h2>Категории и левая панель</h2>
     <form class="admin-form category-create" method="post" action="/admin/categories">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <input name="name" placeholder="Название" required>
       <input name="slug" placeholder="slug">
       <input name="description" placeholder="Описание">
@@ -87,6 +92,7 @@
       {{range .AdminCategories}}
       <form class="admin-rowform category-row" method="post" action="/admin/categories">
         <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <input name="name" value="{{.Name}}" aria-label="Название">
         <input name="slug" value="{{.Slug}}" aria-label="Slug">
         <input name="description" value="{{.Description}}" aria-label="Описание">
@@ -110,6 +116,7 @@
       {{$article := .}}
       <form class="admin-rowform article-row" method="post" action="/admin/articles">
         <input type="hidden" name="id" value="{{.ID}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <a href="{{articlePath .Slug}}">{{.Title}}</a>
         <code>{{.Slug}}</code>
         <select name="category_id" aria-label="Категория">
@@ -132,6 +139,7 @@
   <section class="admin-section">
     <h2>Доступ к приватным статьям</h2>
     <form class="admin-form access-form" method="post" action="/admin/access">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <select name="article_id" required>
         <option value="">Статья</option>
         {{range .Articles}}<option value="{{.ID}}">{{.Title}}</option>{{end}}
@@ -154,6 +162,7 @@
         <input type="hidden" name="article_id" value="{{.ArticleID}}">
         <input type="hidden" name="user_id" value="{{.UserID}}">
         <input type="hidden" name="permission" value="remove">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <span><a href="{{articlePath .ArticleSlug}}">{{.ArticleTitle}}</a></span>
         <span>{{.Username}}</span>
         <strong>{{.Permission}}</strong>
@@ -170,6 +179,7 @@
       <form method="post" action="/admin/backups">
         <input type="hidden" name="action" value="delete">
         <input type="hidden" name="name" value="{{.Name}}">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
         <span><a href="/admin/backups/{{.Name}}">{{.Name}}</a></span>
         <span>{{.SizeBytes}} bytes</span>
         <time>{{.CreatedAt}}</time>
@@ -183,6 +193,7 @@
     <h2>Импорт Obsidian vault</h2>
     <p class="u-muted">Загрузите .zip архив вашего Obsidian хранилища. Все .md файлы станут статьями, изображения и вложения будут загружены автоматически. Wiki-ссылки [[...]] конвертируются в ссылки DocsHub.</p>
     <form class="admin-form" method="post" action="/admin/import-obsidian" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
       <input type="file" name="vault" accept=".zip" required>
       <button class="button primary" type="submit">Импортировать</button>
     </form>

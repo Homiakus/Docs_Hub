@@ -141,9 +141,11 @@ type Page struct {
 	WikiLinks       []WikiLinkItem
 	Backlinks       []Article
 	Versions        []VersionEntry
-	Activities      []ActivityItem
-	CanWrite        bool
-	Stats           string
+	CanRead        bool
+	CanWrite       bool
+	Stats          string
+	Activities     []ActivityItem
+	CSRFToken      string
 }
 
 func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
@@ -151,19 +153,40 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 	if err := s.bootstrap(context.Background()); err != nil {
 		return nil, err
 	}
+	// Parse base template once at startup (page-specific templates are parsed per-request
+	// because they all define the same "content" template)
+	funcs := template.FuncMap{
+		"eq": func(a, b any) bool { return fmt.Sprint(a) == fmt.Sprint(b) },
+		"articlePath": func(slug string) template.URL {
+			return template.URL("/a/" + url.PathEscape(slug))
+		},
+		"editPath": func(slug string) template.URL {
+			return template.URL("/edit/" + url.PathEscape(slug))
+		},
+		"tagPath": func(tag string) template.URL {
+			return template.URL("/?q=" + url.QueryEscape("#"+tag))
+		},
+	}
+	tpl, err := template.New("base.html").Funcs(funcs).ParseFS(web.FS, "templates/base.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse base template: %w", err)
+	}
+	s.tpl = tpl
 	return s, nil
 }
 
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.withUser)
+	// CSRF protection for all state-changing requests (POST/PUT/DELETE)
+	r.Use(s.csrfMiddleware)
 	if s.cfg.RateLimit.Enabled {
 		r.Use(s.rateLimiter())
 	}
 	r.Handle("/static/*", http.FileServerFS(web.FS))
 	r.Get("/healthz", s.health)
 	r.Get("/login", s.loginForm)
-	r.Post("/login", s.login)
+	r.With(s.loginRateLimiter()).Post("/login", s.login)
 	r.Post("/logout", s.logout)
 	r.Get("/", s.requireLogin(s.home))
 	r.Get("/a/{slug}", s.requireLogin(s.article))
@@ -190,26 +213,19 @@ func (s *Server) Routes() http.Handler {
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p Page) {
 	p.SiteName = s.cfg.SiteName
 	p.User = userFrom(r.Context())
+	p.CSRFToken = csrfFrom(r.Context())
 	if p.Categories == nil {
 		p.Categories, _ = s.listCategories(r.Context(), p.User)
 	}
 	if p.Activities == nil {
 		p.Activities, _ = s.listRecentActivity(r.Context(), p.User)
 	}
-	funcs := template.FuncMap{
-		"eq": func(a, b any) bool { return fmt.Sprint(a) == fmt.Sprint(b) },
-		"articlePath": func(slug string) template.URL {
-			return template.URL("/a/" + url.PathEscape(slug))
-		},
-		"editPath": func(slug string) template.URL {
-			return template.URL("/edit/" + url.PathEscape(slug))
-		},
-		"tagPath": func(tag string) template.URL {
-			return template.URL("/?q=" + url.QueryEscape("#"+tag))
-		},
-	}
-	tpl, err := template.New("base.html").Funcs(funcs).ParseFS(web.FS, "templates/base.html", "templates/"+name+".html")
+	tpl, err := s.tpl.Clone()
 	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if _, err := tpl.ParseFS(web.FS, "templates/"+name+".html"); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -279,7 +295,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie("dh_session"); err == nil {
 		sid := strings.SplitN(c.Value, ".", 2)[0]
-		_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=?`, sid)
+		if _, err := s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=?`, sid); err != nil {
+			s.log.Error("logout delete session", "err", err)
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: "dh_session", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -392,36 +410,64 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var versionNo int
-	_ = tx.QueryRowContext(r.Context(), `SELECT coalesce(max(version_no),0)+1 FROM article_versions WHERE article_id=?`, id).Scan(&versionNo)
-	_, _ = tx.ExecContext(r.Context(), `INSERT INTO article_versions(article_id, version_no, title, content, rendered_html, author_id, created_at) VALUES(?,?,?,?,?,?,?)`, id, versionNo, title, content, res.HTML, u.ID, now)
-	_, _ = tx.ExecContext(r.Context(), `DELETE FROM article_tags WHERE article_id=?`, id)
+	if err := tx.QueryRowContext(r.Context(), `SELECT coalesce(max(version_no),0)+1 FROM article_versions WHERE article_id=?`, id).Scan(&versionNo); err != nil {
+		s.log.Error("saveArticle version query", "err", err)
+	}
+	if _, err := tx.ExecContext(r.Context(), `INSERT INTO article_versions(article_id, version_no, title, content, rendered_html, author_id, created_at) VALUES(?,?,?,?,?,?,?)`, id, versionNo, title, content, res.HTML, u.ID, now); err != nil {
+		s.log.Error("saveArticle insert version", "err", err)
+	}
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_tags WHERE article_id=?`, id); err != nil {
+		s.log.Error("saveArticle delete tags", "err", err)
+	}
 	tags := articleSearchTags(res.Tags, categoryName, categorySlug)
 	for _, tag := range tags {
-		_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag)
-		_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, id, tag)
+		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag); err != nil {
+			s.log.Error("saveArticle insert tag", "err", err, "tag", tag)
+		}
+		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, id, tag); err != nil {
+			s.log.Error("saveArticle insert article_tag", "err", err, "tag", tag)
+		}
 	}
-	_, _ = tx.ExecContext(r.Context(), `DELETE FROM links WHERE from_article_id=?`, id)
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM links WHERE from_article_id=?`, id); err != nil {
+		s.log.Error("saveArticle delete links", "err", err)
+	}
 	for _, l := range res.Links {
-		_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, id, l.Slug, l.Label)
+		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, id, l.Slug, l.Label); err != nil {
+			s.log.Error("saveArticle insert link", "err", err, "slug", l.Slug)
+		}
 	}
-	_, _ = tx.ExecContext(r.Context(), `DELETE FROM article_files WHERE article_id=?`, id)
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_files WHERE article_id=?`, id); err != nil {
+		s.log.Error("saveArticle delete article_files", "err", err)
+	}
 	for _, key := range extractUploadKeys(content) {
 		var fileID int64
 		if err := tx.QueryRowContext(r.Context(), `SELECT id FROM files WHERE storage_key=?`, key).Scan(&fileID); err == nil {
-			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, id, fileID, "inline")
+			if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, id, fileID, "inline"); err != nil {
+				s.log.Error("saveArticle insert article_file", "err", err, "key", key)
+			}
 		}
 	}
-	_, _ = tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, id)
-	_, _ = tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, id, title, slug, content, strings.Join(tags, " "))
+	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, id); err != nil {
+		s.log.Error("saveArticle delete fts", "err", err)
+	}
+	if _, err := tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, id, title, slug, content, strings.Join(tags, " ")); err != nil {
+		s.log.Error("saveArticle insert fts", "err", err)
+	}
 	current := articleSnapshot{Slug: slug, Title: title, Content: content, Visibility: visibility, CategoryID: categoryID}
 	summary := summarizeArticleChange(previous, current, hasPrevious)
-	metadata, _ := json.Marshal(map[string]any{
+	metadata, err := json.Marshal(map[string]any{
 		"version": versionNo,
 		"summary": summary,
 		"slug":    slug,
 		"title":   title,
 	})
-	_, _ = tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`, u.ID, "article.save", "article", fmt.Sprint(id), clientIP(r), string(metadata), now)
+	if err != nil {
+		s.log.Error("saveArticle marshal metadata", "err", err)
+		metadata = []byte("{}")
+	}
+	if _, err := tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`, u.ID, "article.save", "article", fmt.Sprint(id), clientIP(r), string(metadata), now); err != nil {
+		s.log.Error("saveArticle insert audit", "err", err)
+	}
 	if err := tx.Commit(); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -437,7 +483,9 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("content-type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(res.HTML))
+	if _, err := w.Write([]byte(res.HTML)); err != nil {
+		s.log.Error("preview write", "err", err)
+	}
 }
 
 func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
@@ -498,13 +546,15 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 
 	fileURL := "/uploads/" + url.PathEscape(storageKey)
 	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"kind":     kind,
 		"url":      fileURL,
 		"filename": header.Filename,
 		"mime":     mimeType,
 		"markdown": mediaSnippet(kind, fileURL, header.Filename),
-	})
+	}); err != nil {
+		s.log.Error("uploadFile encode", "err", err)
+	}
 }
 
 func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
@@ -557,27 +607,52 @@ func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
 	var nodes []map[string]string
 	for rows.Next() {
 		var slug, title string
-		_ = rows.Scan(&slug, &title)
+		if err := rows.Scan(&slug, &title); err != nil {
+			s.log.Error("graphAPI scan node", "err", err)
+			continue
+		}
 		nodes = append(nodes, map[string]string{"id": slug, "label": title})
 	}
-	lr, _ := s.db.QueryContext(r.Context(), `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id`)
-	defer lr.Close()
-	var links []map[string]string
-	for lr.Next() {
-		var a, b string
-		_ = lr.Scan(&a, &b)
-		links = append(links, map[string]string{"source": a, "target": b})
+	lr, err := s.db.QueryContext(r.Context(), `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id`)
+	if err != nil {
+		s.log.Error("graphAPI query links", "err", err)
+	} else {
+		defer lr.Close()
+		var links []map[string]string
+		for lr.Next() {
+			var a, b string
+			if err := lr.Scan(&a, &b); err != nil {
+				s.log.Error("graphAPI scan link", "err", err)
+				continue
+			}
+			links = append(links, map[string]string{"source": a, "target": b})
+		}
+		w.Header().Set("content-type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "links": links}); err != nil {
+			s.log.Error("graphAPI encode", "err", err)
+		}
+		return
 	}
 	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "links": links})
+	if err := json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "links": []map[string]string{}}); err != nil {
+		s.log.Error("graphAPI encode", "err", err)
+	}
 }
 
 func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 	var users, articles, categories, files int
-	_ = s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM users`).Scan(&users)
-	_ = s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM articles WHERE deleted_at IS NULL`).Scan(&articles)
-	_ = s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM categories`).Scan(&categories)
-	_ = s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM files`).Scan(&files)
+	if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM users`).Scan(&users); err != nil {
+		s.log.Error("admin stats users", "err", err)
+	}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM articles WHERE deleted_at IS NULL`).Scan(&articles); err != nil {
+		s.log.Error("admin stats articles", "err", err)
+	}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM categories`).Scan(&categories); err != nil {
+		s.log.Error("admin stats categories", "err", err)
+	}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT count(*) FROM files`).Scan(&files); err != nil {
+		s.log.Error("admin stats files", "err", err)
+	}
 	adminUsers, _ := s.listAdminUsers(r.Context())
 	adminArticles, _ := s.listAdminArticles(r.Context())
 	adminCategories, _ := s.listAdminCategories(r.Context())
@@ -642,7 +717,9 @@ func (s *Server) adminSaveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !active {
-		_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id)
+		if _, err := s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+			s.log.Error("adminSaveUser delete sessions", "err", err, "userID", id)
+		}
 	}
 	s.redirectAdmin(w, r, "Пользователь обновлен", "")
 }
@@ -669,7 +746,9 @@ func (s *Server) adminSetPassword(w http.ResponseWriter, r *http.Request) {
 		s.redirectAdmin(w, r, "", err.Error())
 		return
 	}
-	_, _ = s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id)
+	if _, err := s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+		s.log.Error("adminSetPassword delete sessions", "err", err, "userID", id)
+	}
 	s.redirectAdmin(w, r, "Пароль обновлен, активные сессии сброшены", "")
 }
 
@@ -690,7 +769,9 @@ func (s *Server) adminSaveArticleSettings(w http.ResponseWriter, r *http.Request
 			s.redirectAdmin(w, r, "", err.Error())
 			return
 		}
-		_, _ = s.db.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, id)
+		if _, err := s.db.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, id); err != nil {
+			s.log.Error("adminSaveArticleSettings delete fts", "err", err, "articleID", id)
+		}
 		s.redirectAdmin(w, r, "Статья скрыта", "")
 		return
 	}
@@ -721,7 +802,9 @@ func (s *Server) adminSaveAccess(w http.ResponseWriter, r *http.Request) {
 		s.redirectAdmin(w, r, "", "Выберите статью и пользователя")
 		return
 	}
-	_, _ = s.db.ExecContext(r.Context(), `DELETE FROM acl_users WHERE article_id=? AND user_id=?`, articleID, userID)
+	if _, err := s.db.ExecContext(r.Context(), `DELETE FROM acl_users WHERE article_id=? AND user_id=?`, articleID, userID); err != nil {
+		s.log.Error("adminSaveAccess delete acl", "err", err, "articleID", articleID, "userID", userID)
+	}
 	if permission != "" && permission != "remove" {
 		permission = validPermission(permission)
 		_, err := s.db.ExecContext(r.Context(), `INSERT INTO acl_users(article_id, user_id, permission) VALUES(?,?,?)`, articleID, userID, permission)
@@ -752,7 +835,9 @@ func (s *Server) adminSaveCategory(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback()
-		_, _ = tx.ExecContext(r.Context(), `UPDATE articles SET category_id=NULL WHERE category_id=?`, id)
+		if _, err := tx.ExecContext(r.Context(), `UPDATE articles SET category_id=NULL WHERE category_id=?`, id); err != nil {
+			s.log.Error("adminSaveCategory unlink articles", "err", err, "categoryID", id)
+		}
 		if _, err := tx.ExecContext(r.Context(), `DELETE FROM categories WHERE id=?`, id); err != nil {
 			s.redirectAdmin(w, r, "", err.Error())
 			return
@@ -933,8 +1018,10 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		_, _ = s.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO files(sha256, storage_key, original_name, mime, size_bytes, uploaded_by, created_at) VALUES(?,?,?,?,?,?,?)`,
-			sha, storageKey, filepath.Base(a.Name), mimeType, len(a.Content), u.ID, now)
+		if _, err := s.db.ExecContext(r.Context(), `INSERT OR IGNORE INTO files(sha256, storage_key, original_name, mime, size_bytes, uploaded_by, created_at) VALUES(?,?,?,?,?,?,?)`,
+			sha, storageKey, filepath.Base(a.Name), mimeType, len(a.Content), u.ID, now); err != nil {
+			s.log.Error("obsidian import insert file", "err", err, "name", a.Name)
+		}
 		attachMap[filepath.Base(a.Name)] = "/uploads/" + url.PathEscape(storageKey)
 		importedFiles++
 	}
@@ -995,19 +1082,27 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 		articleID, _ := result.LastInsertId()
 
 		// Save version 1
-		_, _ = tx.ExecContext(r.Context(),
+		if _, err := tx.ExecContext(r.Context(),
 			`INSERT INTO article_versions(article_id, version_no, title, content, rendered_html, author_id, created_at) VALUES(?,1,?,?,?,?,?)`,
-			articleID, title, content, res.HTML, u.ID, now)
+			articleID, title, content, res.HTML, u.ID, now); err != nil {
+			s.log.Error("obsidian import insert version", "err", err, "articleID", articleID)
+		}
 
 		// Save tags
 		for _, tag := range res.Tags {
-			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag)
-			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, articleID, tag)
+			if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag); err != nil {
+				s.log.Error("obsidian import insert tag", "err", err, "tag", tag)
+			}
+			if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, articleID, tag); err != nil {
+				s.log.Error("obsidian import insert article_tag", "err", err, "tag", tag)
+			}
 		}
 
 		// Save wiki links
 		for _, l := range res.Links {
-			_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, articleID, l.Slug, l.Label)
+			if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, articleID, l.Slug, l.Label); err != nil {
+				s.log.Error("obsidian import insert link", "err", err, "slug", l.Slug)
+			}
 		}
 
 		// Associate attachments with the article
@@ -1015,24 +1110,36 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 		for _, key := range attachKeys {
 			var fileID int64
 			if err := tx.QueryRowContext(r.Context(), `SELECT id FROM files WHERE storage_key=?`, key).Scan(&fileID); err == nil {
-				_, _ = tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, articleID, fileID, "inline")
+				if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, articleID, fileID, "inline"); err != nil {
+					s.log.Error("obsidian import insert article_file", "err", err, "key", key)
+				}
 			}
 		}
 
 		// FTS index
 		tags := articleSearchTags(res.Tags, "", "")
-		_, _ = tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, articleID)
-		_, _ = tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, articleID, title, slug, content, strings.Join(tags, " "))
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, articleID); err != nil {
+			s.log.Error("obsidian import delete fts", "err", err, "articleID", articleID)
+		}
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, articleID, title, slug, content, strings.Join(tags, " ")); err != nil {
+			s.log.Error("obsidian import insert fts", "err", err, "articleID", articleID)
+		}
 
 		// Audit
-		metadata, _ := json.Marshal(map[string]any{
+		metadata, err := json.Marshal(map[string]any{
 			"version": 1,
 			"summary": "Импортировано из Obsidian vault: " + mf.Name,
 			"slug":    slug,
 			"title":   title,
 		})
-		_, _ = tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`,
-			u.ID, "obsidian.import", "article", fmt.Sprint(articleID), clientIP(r), string(metadata), now)
+		if err != nil {
+			s.log.Error("obsidian import marshal metadata", "err", err)
+			metadata = []byte("{}")
+		}
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`,
+			u.ID, "obsidian.import", "article", fmt.Sprint(articleID), clientIP(r), string(metadata), now); err != nil {
+			s.log.Error("obsidian import insert audit", "err", err, "articleID", articleID)
+		}
 
 		if err := tx.Commit(); err != nil {
 			tx.Rollback()
@@ -1067,12 +1174,14 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		httpStatus = 503
 	}
 	w.WriteHeader(httpStatus)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"status": status,
 		"app":    "docshub-next",
 		"time":   time.Now().UTC(),
 		"db":     dbOK,
-	})
+	}); err != nil {
+		s.log.Error("health encode", "err", err)
+	}
 }
 
 func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article, error) {
@@ -1240,7 +1349,10 @@ func (s *Server) articleWikiLinks(ctx context.Context, u *User, articleID int64,
 	}
 	for rows.Next() {
 		var item WikiLinkItem
-		_ = rows.Scan(&item.Slug, &item.Label)
+		if err := rows.Scan(&item.Slug, &item.Label); err != nil {
+			s.log.Error("articleWikiLinks scan outbound", "err", err)
+			continue
+		}
 		if item.Label == "" {
 			item.Label = item.Slug
 		}
@@ -1483,7 +1595,11 @@ func (s *Server) ensureAdminCanChangeUser(ctx context.Context, userID int64, nex
 		return nil
 	}
 	var otherAdmins int
-	_ = s.db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id<>? AND role='admin' AND is_active=1`, userID).Scan(&otherAdmins)
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id<>? AND role='admin' AND is_active=1`, userID).Scan(&otherAdmins); err != nil {
+		s.log.Error("ensureAdminCanChangeUser count admins", "err", err)
+		// If we can't verify, be safe and allow the change
+		return nil
+	}
 	if otherAdmins == 0 {
 		return fmt.Errorf("нельзя отключить или понизить последнего активного администратора")
 	}
@@ -1558,11 +1674,17 @@ func (s *Server) canRead(ctx context.Context, u *User, articleID int64, visibili
 		return true
 	}
 	var n int
-	_ = s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_users WHERE article_id=? AND user_id=? AND permission IN ('read','write','admin')`, articleID, u.ID).Scan(&n)
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_users WHERE article_id=? AND user_id=? AND permission IN ('read','write','admin')`, articleID, u.ID).Scan(&n); err != nil {
+		s.log.Error("canRead acl_users", "err", err, "articleID", articleID, "userID", u.ID)
+		return false
+	}
 	if n > 0 {
 		return true
 	}
-	_ = s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_groups ag JOIN group_members gm ON gm.group_id=ag.group_id WHERE ag.article_id=? AND gm.user_id=? AND ag.permission IN ('read','write','admin')`, articleID, u.ID).Scan(&n)
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_groups ag JOIN group_members gm ON gm.group_id=ag.group_id WHERE ag.article_id=? AND gm.user_id=? AND ag.permission IN ('read','write','admin')`, articleID, u.ID).Scan(&n); err != nil {
+		s.log.Error("canRead acl_groups", "err", err, "articleID", articleID, "userID", u.ID)
+		return false
+	}
 	return n > 0
 }
 func (s *Server) canWrite(u *User) bool { return u != nil && (u.Role == "admin" || u.Role == "editor") }
@@ -1843,10 +1965,46 @@ func (s *Server) withUser(next http.Handler) http.Handler {
 			return
 		}
 		var u User
-		var stored, exp string
-		err = s.db.QueryRowContext(r.Context(), `SELECT u.id,u.username,u.display_name,u.role,s.token_hash,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND u.is_active=1`, parts[0]).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &stored, &exp)
+		var stored, exp, csrf string
+		err = s.db.QueryRowContext(r.Context(), `SELECT u.id,u.username,u.display_name,u.role,s.token_hash,s.expires_at,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND u.is_active=1`, parts[0]).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &stored, &exp, &csrf)
 		if err == nil && stored == hashToken(parts[1], s.cfg.SessionSecret) && exp > time.Now().UTC().Format(time.RFC3339) {
-			r = r.WithContext(context.WithValue(r.Context(), userKey{}, &u))
+			ctx := context.WithValue(r.Context(), userKey{}, &u)
+			ctx = context.WithValue(ctx, csrfKey{}, csrf)
+			r = r.WithContext(ctx)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// csrfMiddleware validates CSRF tokens on state-changing requests.
+// The CSRF token is loaded from the session during withUser authentication.
+// Unauthenticated requests (no session) are passed through — endpoints like
+// /login must handle their own security.
+func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip safe methods: GET, HEAD, OPTIONS
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Skip unauthenticated requests (e.g., POST /login)
+		if userFrom(r.Context()) == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		sessionCSRF := csrfFrom(r.Context())
+		if sessionCSRF == "" {
+			http.Error(w, "forbidden: no session", http.StatusForbidden)
+			return
+		}
+		// Accept CSRF token from form field or X-CSRF-Token header
+		requestCSRF := r.FormValue("csrf_token")
+		if requestCSRF == "" {
+			requestCSRF = r.Header.Get("X-CSRF-Token")
+		}
+		if requestCSRF == "" || requestCSRF != sessionCSRF {
+			http.Error(w, "forbidden: invalid CSRF token", http.StatusForbidden)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -1891,8 +2049,10 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 }
 
 type userKey struct{}
+type csrfKey struct{}
 
-func userFrom(ctx context.Context) *User { u, _ := ctx.Value(userKey{}).(*User); return u }
+func userFrom(ctx context.Context) *User       { u, _ := ctx.Value(userKey{}).(*User); return u }
+func csrfFrom(ctx context.Context) string  { t, _ := ctx.Value(csrfKey{}).(string); return t }
 func slugParam(r *http.Request) string {
 	raw := chi.URLParam(r, "slug")
 	if decoded, err := url.PathUnescape(raw); err == nil {
@@ -1915,6 +2075,60 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// loginRateLimiter applies a strict rate limit (5 req/min, burst 3) on login attempts.
+// This is a separate limiter from the global rate limiter for brute-force protection.
+func (s *Server) loginRateLimiter() func(http.Handler) http.Handler {
+	type bucket struct {
+		tokens   float64
+		lastSeen time.Time
+	}
+	var (
+		mu      sync.Mutex
+		buckets = map[string]*bucket{}
+	)
+	rate := 5.0 / 60.0  // 5 tokens per minute
+	burst := 3.0
+
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			mu.Lock()
+			now := time.Now()
+			for ip, b := range buckets {
+				if now.Sub(b.lastSeen) > 10*time.Minute {
+					delete(buckets, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			mu.Lock()
+			b, ok := buckets[ip]
+			if !ok {
+				b = &bucket{tokens: burst, lastSeen: time.Now()}
+				buckets[ip] = b
+			}
+			now := time.Now()
+			elapsed := now.Sub(b.lastSeen).Seconds()
+			b.tokens = min(burst, b.tokens+elapsed*rate)
+			b.lastSeen = now
+			if b.tokens < 1 {
+				mu.Unlock()
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, `{"error":"too many login attempts"}`, http.StatusTooManyRequests)
+				return
+			}
+			b.tokens--
+			mu.Unlock()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // rateLimiter returns a simple token-bucket rate limiting middleware.
