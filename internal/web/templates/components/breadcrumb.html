@@ -1,0 +1,13 @@
+{{define "components/breadcrumb"}}
+<nav class="breadcrumb-nav" aria-label="Хлебные крошки" style="margin-bottom: var(--space-4); display: flex; align-items: center; gap: 8px; font-size: 0.875rem; color: var(--text-tertiary);">
+  <a href="/" style="color: var(--text-secondary); text-decoration: none;">База знаний</a>
+  {{if .CurrentSpace.Slug}}
+    <span>/</span>
+    <a href="/spaces/{{.CurrentSpace.Slug}}" style="color: var(--text-secondary); text-decoration: none;">{{.CurrentSpace.Name}}</a>
+  {{end}}
+  {{if .Article.Title}}
+    <span>/</span>
+    <span style="color: var(--text-primary); font-weight: 500;">{{.Article.Title}}</span>
+  {{end}}
+</nav>
+{{end}}

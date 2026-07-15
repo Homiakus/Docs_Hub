@@ -16,6 +16,7 @@ import (
 
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
+	"github.com/homiakus/docshub-next/internal/db/seeder"
 	"github.com/homiakus/docshub-next/internal/httpapp"
 )
 
@@ -29,6 +30,9 @@ func main() {
 			os.Exit(0)
 		case "healthcheck":
 			runHealthcheck(os.Args[2:])
+			return
+		case "seed-demo":
+			runSeedDemo()
 			return
 		}
 	}
@@ -134,3 +138,25 @@ func parseLogLevel(s string) slog.Level {
 		return slog.LevelInfo
 	}
 }
+
+func runSeedDemo() {
+	_ = godotenv.Load()
+	cfg := config.Load()
+	ctx := context.Background()
+
+	database, err := db.Open(ctx, cfg.DBPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	fmt.Printf("Seeding demo data into DB at: %s...\n", cfg.DBPath)
+	if err := seeder.SeedDemo(ctx, database); err != nil {
+		fmt.Fprintf(os.Stderr, "seeder error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Demo seeding completed successfully!")
+	os.Exit(0)
+}
+

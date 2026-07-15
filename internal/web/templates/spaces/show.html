@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="space-show">
+  {{template "components/breadcrumb" .}}
+
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">Пространство</span>
+      <h1 class="text-page-title">{{.CurrentSpace.Name}}</h1>
+      <p class="text-secondary">{{.CurrentSpace.Description}}</p>
+    </div>
+    <a class="btn btn-primary" href="/new">Создать документ</a>
+  </div>
+
+  <div class="list" style="margin-top: var(--space-6);">
+    {{range .Articles}}
+    <article class="listitem">
+      <h2><a href="{{articlePath .Slug}}">{{.Title}}</a></h2>
+      <p>
+        <span>Обновлено: {{.UpdatedAt}}</span>
+        <span class="badge badge-published">{{.Visibility}}</span>
+      </p>
+    </article>
+    {{else}}
+    <div style="padding: var(--space-8); text-align: center; color: var(--text-tertiary);">
+      <p>В этом пространстве пока нет документов.</p>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

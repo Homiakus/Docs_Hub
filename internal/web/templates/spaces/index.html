@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="spaces-index">
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">Структура</span>
+      <h1 class="text-page-title">Пространства знаний</h1>
+      <p class="text-secondary">Каталог разделов и тематических пространств организации.</p>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4); margin-top: var(--space-6);">
+    {{range .Spaces}}
+    <a href="/spaces/{{.Slug}}" style="display: grid; gap: var(--space-2); padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); text-decoration: none; color: inherit; transition: border-color var(--transition-fast), box-shadow var(--transition-fast);">
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h2 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin: 0;">{{.Name}}</h2>
+        <span class="badge badge-published">{{.Count}} док.</span>
+      </div>
+      <p style="font-size: 0.875rem; color: var(--text-secondary); margin: 0; line-height: 1.4;">{{.Description}}</p>
+    </a>
+    {{else}}
+    <p class="u-muted">Пространства не найдены.</p>
+    {{end}}
+  </div>
+</div>
+{{end}}

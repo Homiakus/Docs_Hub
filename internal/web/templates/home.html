@@ -1,19 +1,87 @@
 {{define "content"}}
-<section class="workspace-panel">
+<div class="dashboard">
   <div class="pagehead">
     <div>
-      <p class="eyebrow">{{if .Query}}Результаты поиска{{else}}База знаний{{end}}</p>
-      <h1>{{if .Query}}Поиск: {{.Query}}{{else}}Статьи{{end}}</h1>
+      <span class="eyebrow">Корпоративная база знаний</span>
+      <h1 class="text-page-title">Обзор базы знаний</h1>
+      <p class="text-secondary">Центр управления документацией, черновиками и регламентами.</p>
     </div>
-    {{if .User}}<a class="button primary" href="/new">Новая статья</a>{{end}}
+    {{if .User}}
+    <a class="btn btn-primary" href="/new">Создать документ</a>
+    {{end}}
   </div>
-  <div class="list">
-  {{range .Articles}}
-    <article class="listitem">
-      <h2><a href="{{articlePath .Slug}}">{{.Title}}</a></h2>
-      <p><code>{{.Slug}}</code><span>{{.UpdatedAt}}</span><span>{{.Visibility}}</span></p>
-    </article>
-  {{else}}<p class="u-muted">Ничего не найдено.</p>{{end}}
+
+  {{if .Query}}
+  <!-- Search Overlay Mode -->
+  <section style="margin-top: var(--space-6);">
+    <h2 class="text-section-title" style="margin-bottom: var(--space-4);">Результаты быстрого поиска: "{{.Query}}"</h2>
+    <div style="display: grid; gap: var(--space-3);">
+      {{range .Articles}}
+        {{template "components/document_card" .}}
+      {{else}}
+        <p class="u-muted">Документы не найдены.</p>
+      {{end}}
+    </div>
+  </section>
+  {{else}}
+  <!-- Dashboard Grid -->
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-6); margin-top: var(--space-6);">
+    <!-- Left Column: Recent Work & Drafts -->
+    <div style="display: grid; gap: var(--space-6);">
+      <section>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3);">
+          <h2 class="text-section-title">Продолжить работу</h2>
+          <a href="/search" style="font-size: 0.875rem;">Все документы →</a>
+        </div>
+        <div style="display: grid; gap: var(--space-3);">
+          {{range .RecentDocs}}
+            {{template "components/document_card" .}}
+          {{else}}
+            {{range .Articles}}
+              {{template "components/document_card" .}}
+            {{else}}
+              <p class="u-muted">Нет недавних документов.</p>
+            {{end}}
+          {{end}}
+        </div>
+      </section>
+
+      {{if .Drafts}}
+      <section>
+        <h2 class="text-section-title" style="margin-bottom: var(--space-3);">Мои черновики</h2>
+        <div style="display: grid; gap: var(--space-3);">
+          {{range .Drafts}}
+            {{template "components/document_card" .}}
+          {{end}}
+        </div>
+      </section>
+      {{end}}
+    </div>
+
+    <!-- Right Column: Review Queue & Quick Navigation -->
+    <div style="display: grid; gap: var(--space-6); align-content: start;">
+      <section style="padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
+        <h2 class="text-section-title" style="margin-bottom: var(--space-3); font-size: 1.125rem;">Ожидают проверки</h2>
+        {{range .ReviewQueue}}
+          <div style="padding: var(--space-2) 0; border-bottom: 1px solid var(--border-subtle);">
+            <a href="{{articlePath .Slug}}" style="font-weight: 500; font-size: 0.875rem;">{{.Title}}</a>
+            <p style="font-size: 0.75rem; color: var(--text-tertiary); margin: 2px 0 0;">Статус: {{.Status}}</p>
+          </div>
+        {{else}}
+          <p style="font-size: 0.875rem; color: var(--text-tertiary); margin: 0;">Очередь проверки пуста.</p>
+        {{end}}
+      </section>
+
+      <section style="padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
+        <h2 class="text-section-title" style="margin-bottom: var(--space-3); font-size: 1.125rem;">Быстрые действия</h2>
+        <div style="display: grid; gap: var(--space-2);">
+          <a class="btn btn-secondary btn-sm" href="/new" style="justify-content: flex-start;">Новый документ из шаблона</a>
+          <a class="btn btn-secondary btn-sm" href="/graph" style="justify-content: flex-start;">Открыть граф знаний</a>
+          <a class="btn btn-secondary btn-sm" href="/search" style="justify-content: flex-start;">Расширенный поиск</a>
+        </div>
+      </section>
+    </div>
   </div>
-</section>
+  {{end}}
+</div>
 {{end}}

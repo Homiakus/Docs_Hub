@@ -1,0 +1,82 @@
+{{define "components/sidebar"}}
+<aside class="sidepanel" id="mobile-navigation" aria-label="Боковое меню">
+  <div class="sidepanel-head">
+    <a class="brand" href="/">
+      <span class="brand-mark">DH</span>
+      <span>{{.SiteName}}</span>
+    </a>
+    <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть меню">
+      <span aria-hidden="true">×</span>
+    </button>
+  </div>
+
+  <nav class="side-nav" aria-label="Навигация">
+    <section>
+      <h2>Навигация</h2>
+      <a class="side-link" href="/"><span>Главная</span></a>
+      <a class="side-link" href="/spaces"><span>Пространства</span></a>
+      <a class="side-link" href="/search"><span>Поиск (Ctrl+K)</span></a>
+      {{if .User}}<a class="side-link" href="/new"><span>Создать документ</span></a>{{end}}
+      {{if .User}}<a class="side-link" href="/graph"><span>Граф знаний</span></a>{{end}}
+    </section>
+
+    {{if .Spaces}}
+    <section>
+      <h2>Пространства</h2>
+      {{range .Spaces}}
+      <a class="side-link subtle" href="/spaces/{{.Slug}}">
+        <span>{{.Name}}</span>
+        <em>{{.Count}}</em>
+      </a>
+      {{end}}
+    </section>
+    {{end}}
+
+    {{if .Categories}}
+    <section>
+      <h2>Категории</h2>
+      {{range .Categories}}
+      <a class="side-link subtle" href="{{tagPath .Slug}}">
+        <span>{{.Name}}</span>
+        <em>{{.Count}}</em>
+      </a>
+      {{end}}
+    </section>
+    {{end}}
+
+    <section>
+      <h2>Управление</h2>
+      {{if .User}}
+        {{if eq .User.Role "admin"}}
+        <a class="side-link" href="/admin"><span>Администрирование</span></a>
+        {{end}}
+        <form method="post" action="/logout" class="inline">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button class="side-link side-button" type="submit"><span>Выйти ({{.User.Username}})</span></button>
+        </form>
+      {{else}}
+        <a class="side-link" href="/login"><span>Войти</span></a>
+      {{end}}
+    </section>
+  </nav>
+
+  {{if .Activities}}
+  <section class="side-activity">
+    <h2>Недавняя активность</h2>
+    {{range .Activities}}
+      <article>
+        <strong>{{.Actor}}</strong>
+        {{if .Slug}}<a href="{{articlePath .Slug}}">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}
+        <p>{{.Summary}}</p>
+      </article>
+    {{end}}
+  </section>
+  {{end}}
+
+  <div class="side-footer">
+    <button class="theme-toggle" id="themeToggle" aria-label="Переключить тему" title="Светлая/тёмная тема">
+      <span class="theme-icon">☀️</span>
+    </button>
+  </div>
+</aside>
+{{end}}

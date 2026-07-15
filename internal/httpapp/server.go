@@ -125,6 +125,14 @@ type BackupRow struct {
 	CreatedAt string
 }
 
+type Space struct {
+	ID          int64
+	Name        string
+	Slug        string
+	Description string
+	Count       int
+}
+
 type Page struct {
 	SiteName        string
 	Title           string
@@ -132,6 +140,11 @@ type Page struct {
 	Query           string
 	Error           string
 	Notice          string
+	Spaces          []Space
+	CurrentSpace    Space
+	Drafts          []Article
+	ReviewQueue     []Article
+	RecentDocs      []Article
 	Articles        []Article
 	Article         Article
 	Categories      []Category
@@ -168,7 +181,7 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 			return template.URL("/?q=" + url.QueryEscape("#"+tag))
 		},
 	}
-	tpl, err := template.New("base.html").Funcs(funcs).ParseFS(web.FS, "templates/base.html")
+	tpl, err := template.New("base.html").Funcs(funcs).ParseFS(web.FS, "templates/base.html", "templates/components/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse base template: %w", err)
 	}
@@ -190,6 +203,10 @@ func (s *Server) Routes() http.Handler {
 	r.With(s.loginRateLimiter()).Post("/login", s.login)
 	r.Post("/logout", s.logout)
 	r.Get("/", s.requireLogin(s.home))
+	r.Get("/search", s.requireLogin(s.searchPage))
+	r.Get("/api/v1/search/suggest", s.requireLogin(s.searchSuggestAPI))
+	r.Get("/spaces", s.requireLogin(s.spacesPage))
+	r.Get("/spaces/{slug}", s.requireLogin(s.showSpacePage))
 	r.Get("/a/{slug}", s.requireLogin(s.article))
 	r.Get("/new", s.requireEditor(s.editNew))
 	r.Get("/edit/{slug}", s.requireEditor(s.editExisting))
@@ -217,6 +234,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p P
 	p.CSRFToken = csrfFrom(r.Context())
 	if p.Categories == nil {
 		p.Categories, _ = s.listCategories(r.Context(), p.User)
+	}
+	if p.Spaces == nil {
+		p.Spaces, _ = s.listSpaces(r.Context())
 	}
 	if p.Activities == nil {
 		p.Activities, _ = s.listRecentActivity(r.Context(), p.User)
@@ -255,13 +275,122 @@ func (s *Server) bootstrap(ctx context.Context) error {
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	u := userFrom(r.Context())
+	arts, err := s.listArticles(r.Context(), u, q)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	var drafts, reviewQueue, recent []Article
+	for _, a := range arts {
+		if a.OwnerID == u.ID && (a.Status == "draft" || a.Status == "") {
+			drafts = append(drafts, a)
+		} else if a.Status == "in_review" {
+			reviewQueue = append(reviewQueue, a)
+		} else {
+			recent = append(recent, a)
+		}
+	}
+
+	s.render(w, r, "home", Page{
+		Title:       "Обзор",
+		Query:       q,
+		Articles:    arts,
+		RecentDocs:  recent,
+		Drafts:      drafts,
+		ReviewQueue: reviewQueue,
+	})
+}
+
+func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	arts, err := s.listArticles(r.Context(), userFrom(r.Context()), q)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	categories, _ := s.listCategories(r.Context(), userFrom(r.Context()))
-	s.render(w, r, "home", Page{Title: "Главная", Query: q, Articles: arts, Categories: categories})
+	s.render(w, r, "search", Page{Title: "Поиск", Query: q, Articles: arts})
+}
+
+func (s *Server) searchSuggestAPI(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	arts, err := s.listArticles(r.Context(), userFrom(r.Context()), q)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	type item struct {
+		Title string `json:"title"`
+		Slug  string `json:"slug"`
+	}
+	var results []item
+	for _, a := range arts {
+		results = append(results, item{Title: a.Title, Slug: a.Slug})
+		if len(results) >= 8 {
+			break
+		}
+	}
+	w.Header().Set("content-type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"suggestions": results})
+}
+
+func (s *Server) listSpaces(ctx context.Context) ([]Space, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT s.id, s.name, s.slug, s.description, COUNT(a.id)
+		 FROM spaces s
+		 LEFT JOIN articles a ON a.space_id = s.id AND a.deleted_at IS NULL
+		 GROUP BY s.id
+		 ORDER BY s.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var spaces []Space
+	for rows.Next() {
+		var sp Space
+		if err := rows.Scan(&sp.ID, &sp.Name, &sp.Slug, &sp.Description, &sp.Count); err == nil {
+			spaces = append(spaces, sp)
+		}
+	}
+	return spaces, nil
+}
+
+func (s *Server) spacesPage(w http.ResponseWriter, r *http.Request) {
+	spaces, err := s.listSpaces(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.render(w, r, "spaces/index", Page{Title: "Пространства", Spaces: spaces})
+}
+
+func (s *Server) showSpacePage(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	var sp Space
+	err := s.db.QueryRowContext(r.Context(), `SELECT id, name, slug, description FROM spaces WHERE slug=?`, slug).Scan(&sp.ID, &sp.Name, &sp.Slug, &sp.Description)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	u := userFrom(r.Context())
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id, slug, title, content, visibility, updated_at FROM articles WHERE space_id=? AND deleted_at IS NULL ORDER BY updated_at DESC`, sp.ID)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	defer rows.Close()
+	var articles []Article
+	for rows.Next() {
+		var a Article
+		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &a.Visibility, &a.UpdatedAt); err == nil {
+			if s.canRead(r.Context(), u, a.ID, a.Visibility) {
+				articles = append(articles, a)
+			}
+		}
+	}
+	sp.Count = len(articles)
+	s.render(w, r, "spaces/show", Page{Title: sp.Name, CurrentSpace: sp, Articles: articles})
 }
 
 func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
