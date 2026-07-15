@@ -23,4 +23,4 @@ EXPOSE 8080
 USER nonroot:nonroot
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["wget", "--spider", "--quiet", "http://localhost:8080/healthz"]
+    CMD ["/app/docshub", "healthcheck", "--url=http://localhost:8080/healthz"]

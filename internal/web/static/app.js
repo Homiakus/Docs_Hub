@@ -72,6 +72,20 @@
     pre.appendChild(btn);
   });
 
+  function getCSRFToken() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+  }
+
+  async function apiFetch(url, options = {}) {
+    const csrf = getCSRFToken();
+    const headers = new Headers(options.headers || {});
+    if (csrf && !headers.has('X-CSRF-Token')) {
+      headers.set('X-CSRF-Token', csrf);
+    }
+    return fetch(url, { ...options, headers });
+  }
+
   // ---- Editor / preview ----
   const editor = document.getElementById('content');
   const preview = document.getElementById('preview');
@@ -80,7 +94,7 @@
     const mediaInput = document.getElementById('mediaInput');
     const mediaPicker = document.getElementById('mediaPicker');
     const render = async () => {
-      const res = await fetch('/api/preview', {method:'POST', headers:{'content-type':'text/plain'}, body:editor.value});
+      const res = await apiFetch('/api/preview', {method:'POST', headers:{'content-type':'text/plain'}, body:editor.value});
       if (res.redirected && new URL(res.url, window.location.href).pathname === '/login') {
         window.location.href = '/login';
         return;
@@ -128,7 +142,7 @@
 
   // ---- Graph ----
   if (window.DOCSHUB_GRAPH_ENDPOINT) {
-    fetch(window.DOCSHUB_GRAPH_ENDPOINT).then(r=>r.json()).then(g => {
+    apiFetch(window.DOCSHUB_GRAPH_ENDPOINT).then(r=>r.json()).then(g => {
       const graph = document.getElementById('graph');
       const renderGraph = debounce(() => drawGraph(graph, g), 120);
       drawGraph(graph, g);
@@ -168,7 +182,7 @@
       for (const file of allowed) {
         const form = new FormData();
         form.append('file', file);
-        const res = await fetch(editor.dataset.uploadEndpoint || '/api/uploads', {method:'POST', body:form});
+        const res = await apiFetch(editor.dataset.uploadEndpoint || '/api/uploads', {method:'POST', body:form});
         if (!res.ok) throw new Error(await res.text());
         const payload = await res.json();
         insertAtCursor(editor, `\n\n${payload.markdown}\n\n`);

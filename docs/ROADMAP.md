@@ -1,42 +1,32 @@
-# Roadmap
+# Roadmap Docs_Hub
 
-## Milestone 1 — Core wiki
+> **Примечание:** Полный корпоративный детальный план развития проекта размещен в файле [Docs_Hub_Enterprise_Roadmap.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/Docs_Hub_Enterprise_Roadmap.md).
 
-- [x] SQLite schema
-- [x] Markdown rendering with sanitizer
-- [x] wiki-links
-- [x] tags
-- [x] backlinks
-- [x] graph endpoint
-- [x] sessions
-- [x] article versions
-- [ ] import from old `storage.json`
-- [ ] attachments UI
-- [ ] admin users/groups UI
-- [ ] ACL editor
+## Итоговые контрольные вехи (Milestones)
 
-## Milestone 2 — Company-ready
+### Milestone A: Secure Internal Pilot (В процессе)
+- [x] Очистка Git и гигиена репозитория (`bin/docshub`, `.gitignore`, `CONTRIBUTING.md`, `SECURITY.md`)
+- [ ] Исправление P0-уязвимостей авторизации (`editExisting`, `saveArticle`)
+- [ ] Фильтрация закрытых сущностей в `/api/graph`, обратных ссылках и категориях
+- [ ] Единая CSRF-защита в JS-клиенте (`apiFetch`)
+- [ ] Локальный Mermaid в strict режиме и контейнерный healthcheck CLI
+- [ ] Middleware заголовков безопасности (CSP, HSTS)
 
-- [ ] OIDC login
-- [ ] group mapping from OIDC claims
-- [ ] audit UI
-- [ ] backup/restore CLI
-- [ ] S3/MinIO file backend
-- [ ] PDF/DOCX text extraction for search
+### Milestone B: Corporate MVP
+- [ ] Домен Организаций, Пространств (Spaces) и Групп
+- [ ] Аутентификация OIDC (Authorization Code Flow + PKCE)
+- [ ] Жизненный цикл документов (Draft -> Review -> Published -> Archived)
+- [ ] Редакции версий, сравнение (diff) и optimistic locking (`lock_version`)
+- [ ] Безопасный бэкап и S3/MinIO адаптер вложений
 
-## Milestone 3 — Obsidian-like UX
+### Milestone C: Enterprise Beta
+- [ ] Поддержка PostgreSQL и Redis в профиле Enterprise
+- [ ] PDF.js viewer, распознавание OCR и поиск по страницам
+- [ ] Полнотекстовый ACL-aware поиск
+- [ ] Новый интерфейс навигации и разделенный Admin UI
+- [ ] Система комментариев и уведомлений
 
-- [ ] Obsidian vault import/export
-- [ ] properties/frontmatter
-- [ ] Dataview-like queries
-- [ ] graph filters
-- [ ] command palette
-- [ ] daily notes/templates
-- [ ] Mermaid/KaTeX/callouts
-
-## Milestone 4 — Collaboration
-
-- [ ] comments
-- [ ] review workflow
-- [ ] notifications
-- [ ] realtime editing via Yjs/Automerge
+### Milestone D: Commercial GA
+- [ ] Завершение аудита безопасности, пентенст и прохождение DevSecOps ворот
+- [ ] Соответствие WCAG 2.2 AA (Accessibility)
+- [ ] Публикация пакета SLA, документации по Disaster Recovery и миграционных утилит

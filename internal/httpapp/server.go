@@ -64,6 +64,7 @@ type Article struct {
 	HasMermaid bool
 	Headings   []markdownx.Heading
 	Tags       []string
+	OwnerID    int64
 }
 
 type Category struct {
@@ -177,7 +178,7 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.withUser)
+	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.withUser)
 	// CSRF protection for all state-changing requests (POST/PUT/DELETE)
 	r.Use(s.csrfMiddleware)
 	if s.cfg.RateLimit.Enabled {
@@ -326,9 +327,14 @@ func (s *Server) editNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) editExisting(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
 	a, err := s.getArticle(r.Context(), slugParam(r))
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+	if !s.canEditDocument(r.Context(), u, a.ID, a.OwnerID, a.Visibility) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	categories, _ := s.listAdminCategories(r.Context())
@@ -342,6 +348,28 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 	}
 	u := userFrom(r.Context())
 	id, _ := strconv.ParseInt(r.Form.Get("id"), 10, 64)
+	if id != 0 {
+		var ownerID int64
+		var currentVis string
+		err := s.db.QueryRowContext(r.Context(), `SELECT coalesce(owner_id,0), visibility FROM articles WHERE id=? AND deleted_at IS NULL`, id).Scan(&ownerID, &currentVis)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if !s.canEditDocument(r.Context(), u, id, ownerID, currentVis) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	} else {
+		if !s.canEditDocument(r.Context(), u, 0, u.ID, "authenticated") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
 	title := strings.TrimSpace(r.Form.Get("title"))
 	slug := markdownx.Slugify(r.Form.Get("slug"))
 	if slug == "" {
@@ -592,28 +620,34 @@ func (s *Server) graphPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT slug,title FROM articles WHERE deleted_at IS NULL ORDER BY title`)
+	u := userFrom(r.Context())
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,slug,title,visibility FROM articles WHERE deleted_at IS NULL ORDER BY title`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	defer rows.Close()
-	type node struct {
-		ID, Label string `json:",omitempty"`
+	type candidate struct {
+		id         int64
+		slug, title, vis string
 	}
-	type link struct {
-		Source, Target string `json:",omitempty"`
-	}
-	var nodes []map[string]string
+	var candidates []candidate
 	for rows.Next() {
-		var slug, title string
-		if err := rows.Scan(&slug, &title); err != nil {
-			s.log.Error("graphAPI scan node", "err", err)
-			continue
+		var item candidate
+		if err := rows.Scan(&item.id, &item.slug, &item.title, &item.vis); err == nil {
+			candidates = append(candidates, item)
 		}
-		nodes = append(nodes, map[string]string{"id": slug, "label": title})
 	}
-	lr, err := s.db.QueryContext(r.Context(), `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id`)
+	rows.Close()
+
+	var nodes []map[string]string
+	accessibleSlugs := make(map[string]bool)
+	for _, item := range candidates {
+		if s.canRead(r.Context(), u, item.id, item.vis) {
+			nodes = append(nodes, map[string]string{"id": item.slug, "label": item.title})
+			accessibleSlugs[item.slug] = true
+		}
+	}
+	lr, err := s.db.QueryContext(r.Context(), `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id WHERE a.deleted_at IS NULL`)
 	if err != nil {
 		s.log.Error("graphAPI query links", "err", err)
 	} else {
@@ -625,7 +659,9 @@ func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
 				s.log.Error("graphAPI scan link", "err", err)
 				continue
 			}
-			links = append(links, map[string]string{"source": a, "target": b})
+			if accessibleSlugs[a] && accessibleSlugs[b] {
+				links = append(links, map[string]string{"source": a, "target": b})
+			}
 		}
 		w.Header().Set("content-type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]any{"nodes": nodes, "links": links}); err != nil {
@@ -1228,7 +1264,7 @@ func (s *Server) getArticle(ctx context.Context, slug string) (Article, error) {
 	}
 	var a Article
 	var html string
-	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,'') FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category)
+	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category, &a.OwnerID)
 	a.HTML = template.HTML(html)
 	if a.Content != "" {
 		if res, renderErr := markdownx.Render(a.Content); renderErr == nil {
@@ -1689,6 +1725,35 @@ func (s *Server) canRead(ctx context.Context, u *User, articleID int64, visibili
 }
 func (s *Server) canWrite(u *User) bool { return u != nil && (u.Role == "admin" || u.Role == "editor") }
 
+func (s *Server) canEditDocument(ctx context.Context, u *User, articleID int64, ownerID int64, visibility string) bool {
+	if u == nil {
+		return false
+	}
+	if u.Role == "admin" {
+		return true
+	}
+	if u.Role != "editor" {
+		return false
+	}
+	if articleID == 0 {
+		return true
+	}
+	if ownerID != 0 && u.ID == ownerID {
+		return true
+	}
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_users WHERE article_id=? AND user_id=? AND permission IN ('write','admin')`, articleID, u.ID).Scan(&n); err == nil && n > 0 {
+		return true
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM acl_groups ag JOIN group_members gm ON gm.group_id=ag.group_id WHERE ag.article_id=? AND gm.user_id=? AND ag.permission IN ('write','admin')`, articleID, u.ID).Scan(&n); err == nil && n > 0 {
+		return true
+	}
+	if visibility == "public" || visibility == "authenticated" {
+		return true
+	}
+	return false
+}
+
 type articleSnapshot struct {
 	Slug       string
 	Title      string
@@ -1950,6 +2015,20 @@ func cleanMediaName(filename string) string {
 
 func escapeMarkdownLabel(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`).Replace(s)
+}
+
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:;")
+		if s.cfg.TLS.Enabled || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) withUser(next http.Handler) http.Handler {

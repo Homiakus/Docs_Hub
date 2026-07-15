@@ -1,54 +1,42 @@
-# Architecture
+# Архитектура Docs_Hub
 
-## Цель
+## Целевое визионирование
 
-Docs Hub Next — не очередной клон Confluence. Это лёгкая self-hosted Markdown-first wiki для команд, совместимая по мышлению с Obsidian: wiki-links, backlinks, graph, tags, Markdown, импорт vault.
+Docs_Hub эволюционирует из минимального Markdown-first MVP в модульный монолит бизнес-класса. Архитектура разработана с целью обеспечения максимальной скорости и безопасности, исключая преждевременную сложность микросервисов.
 
-## Почему SQLite-first
+## Принципы архитектуры
 
-SQLite даёт простоту одного файла, но решает проблемы JSON-хранилища:
+1. **Модульный монолит**: Единый исполняемый файл с четким разграничением доменных границ и прикладных сервисов.
+2. **Централизованный Authorizer**: Ни один handler или SQL-запрос не принимает решение об авторизации самостоятельно; все действия проверяются единой службой контроля доступа.
+3. **Два профиля развертывания**:
+   - **Team Edition**: SQLite (WAL mode), локальное хранилище вложений, 1 инстанс.
+   - **Enterprise Edition**: PostgreSQL, S3/MinIO, Redis для распределенных сессий/очередей, фоновые workers.
 
-- транзакции;
-- индексы;
-- FTS5;
-- WAL;
-- нормальные миграции;
-- версии статей без раздувания одного JSON.
-
-PostgreSQL можно добавить позже через storage-интерфейс, но начинать с него не обязательно.
-
-## Пакеты
+## Целевая структура пакетов (`internal/`)
 
 ```text
-cmd/docshub          точка входа
-internal/config      env-конфиг
-internal/db          SQLite и миграции
-internal/auth        Argon2id password hashing
-internal/markdownx   Markdown, sanitizer, wiki-links, tags
-internal/httpapp     HTTP routes, handlers, ACL checks
-internal/web         embedded templates/static
+cmd/
+  docshub/               # Точка входа веб-сервера и CLI
+  docshubctl/            # CLI для бэкапа, гидратации и административных задач
+internal/
+  domain/                # Чистые сущности: Document, Revision, Organization, Space, Permission
+  application/           # Прикладные сервисы: DocumentService, PermissionService, SearchService
+  authn/                 # Аутентификация: Local, OIDC, Sessions
+  authz/                 # Централизованный Authorizer и RBAC/ABAC политики
+  repository/            # Интерфейсы репозиториев и реализации (SQLite/PostgreSQL)
+  search/                # Абстракция поиска (SQLite FTS5 / OpenSearch)
+  files/                 # Хранилище объектов (Local / S3)
+  audit/                 # Журналирование событий безопасности
+  web/                   # HTTP хэндлеры, middleware, шаблоны и статика
 ```
 
-## Данные
+## Хранение данных
 
-Основные таблицы:
+Основные концептуальные таблицы:
 
-- `users`, `groups`, `group_members`;
-- `articles`;
-- `article_versions`;
-- `tags`, `article_tags`;
-- `links`;
-- `acl_users`, `acl_groups`;
-- `files`, `article_files`;
-- `sessions`;
-- `audit_events`;
-- `article_fts`.
-
-## Что делать дальше
-
-1. Добавить OIDC/SAML.
-2. Добавить нормальный UI управления группами и ACL.
-3. Добавить импорт Obsidian vault.
-4. Добавить вложения через content-addressed storage.
-5. Добавить comments/review workflow.
-6. Добавить WebSocket/CRDT только после стабилизации обычного editor flow.
+- `organizations`, `spaces`, `space_members`
+- `users`, `groups`, `group_members`, `role_bindings`
+- `documents`, `document_revisions`, `document_permissions`, `document_reviews`
+- `tags`, `document_tags`, `links`
+- `files`, `document_files`, `attachment_pages`
+- `sessions`, `audit_events`, `document_fts`

@@ -1,89 +1,46 @@
-# Docs Hub Next
+# Docs_Hub
 
-Новая версия Docs Hub: лёгкая корпоративная wiki в стиле Obsidian, но с серверной моделью доступа, аудитом и нормальной базой данных.
+**Docs_Hub** — корпоративная база знаний и платформенное wiki-решение на Go для управления знаниями, вложениями, диаграммами и документами.
 
-## Что уже заложено
+Версия: **v0.3.0-alpha.1**
 
-- Go 1.23, один бинарный файл.
-- SQLite WAL вместо самописной JSON-БД.
-- Markdown pipeline: `goldmark` + GFM + подсветка кода + `bluemonday` sanitizer.
-- Wiki-links `[[slug]]` и `[[slug|label]]`.
-- Теги `#tag`.
-- Backlinks через таблицу `links`, без парсинга на лету.
-- Graph API `/api/graph`.
-- Article versions через `article_versions`.
-- FTS5 search через `article_fts`.
-- Users, groups, ACL tables.
-- Server-side sessions.
-- Argon2id password hashing.
-- Embedded templates/static через `embed`.
-- Docker Compose.
+## Документация проекта
 
-## Production features (v0.2.0)
-
-- **Config validation** — `ADMIN_PASSWORD` и `SESSION_SECRET` обязательны, с проверкой минимальной длины.
-- **Rate limiting** — token-bucket на 60 req/min по IP, настраивается через `RATE_LIMIT_RPM` / `RATE_LIMIT_BURST`.
-- **TLS support** — включается через `TLS_ENABLED=1` + `TLS_CERT_FILE` / `TLS_KEY_FILE`.
-- **Health check** — `/healthz` проверяет подключение к БД, возвращает 503 при деградации.
-- **Structured logging** — настраиваемый уровень через `LOG_LEVEL` (debug/info/warn/error).
-- **Graceful shutdown** — 30s таймаут, IDLE/READ/WRITE таймауты на сервере.
-- **CI/CD** — GitHub Actions: lint + test -race + build + Docker build.
-- **Docker healthcheck** — встроен в Dockerfile и compose.yaml.
+- [Docs_Hub_Enterprise_Roadmap.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/Docs_Hub_Enterprise_Roadmap.md) — Дорожная карта превращения Docs_Hub в коммерческую Enterprise платформу
+- [docs/ARCHITECTURE.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/docs/ARCHITECTURE.md) — Описание модульной архитектуры и принципов домена
+- [docs/ROADMAP.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/docs/ROADMAP.md) — Краткое резюме релизных вех
+- [CONTRIBUTING.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/CONTRIBUTING.md) — Правила участия в разработке
+- [SECURITY.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/SECURITY.md) — Политика раскрытия уязвимостей
+- [CHANGELOG.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/CHANGELOG.md) — Журнал релиза и изменений
 
 ## Быстрый старт
 
 ```bash
 cp .env.example .env
-# заполните ADMIN_PASSWORD и SESSION_SECRET
+# Заполните ADMIN_PASSWORD и SESSION_SECRET
 
-# Локально (читает .env через export)
+# Запуск локально
 export $(grep -v '^#' .env | xargs)
 go run ./cmd/docshub
 
-# Или Docker
+# Запуск в Docker
 docker compose up -d --build
 ```
 
-Открыть:
+Откройте в браузере: `http://localhost:8080`
 
-```
-http://localhost:8080
-```
+## Проверка состояния здоровья (Healthcheck)
 
-## Конфигурация
-
-Все параметры через env vars (см. `.env.example`):
-
-| Переменная | По умолчанию | Описание |
-|---|---|---|
-| `ADMIN_PASSWORD` | **обязательно** | Пароль админа (мин. 8 символов) |
-| `SESSION_SECRET` | **обязательно** | Секрет для сессий (мин. 16 символов) |
-| `ADDR` | `:8080` | Адрес сервера |
-| `DATA_DIR` | `./data` | Директория данных |
-| `SITE_NAME` | `Docs Hub Next` | Название сайта |
-| `ADMIN_USER` | `admin` | Логин админа |
-| `COOKIE_SECURE` | `0` | Secure-флаг для cookie |
-| `LOG_LEVEL` | `info` | Уровень логирования |
-| `RATE_LIMIT_ENABLED` | `true` | Включить rate limiter |
-| `RATE_LIMIT_RPM` | `60` | Запросов в минуту на IP |
-| `RATE_LIMIT_BURST` | `10` | Размер burst |
-| `TLS_ENABLED` | `0` | Включить HTTPS |
-| `TLS_CERT_FILE` | — | Путь к сертификату |
-| `TLS_KEY_FILE` | — | Путь к ключу |
-
-## Разработка
+Исполняемый файл предоставляет встроенную команду для контейнерного и внешнего контроля здоровья:
 
 ```bash
-make help     # список команд
-make test     # тесты
-make test-cov # coverage
-make lint     # go vet
-make build    # сборка бинарника
-make all      # lint + test + build
+docshub healthcheck --url=http://127.0.0.1:8080/healthz
 ```
 
-## Миграция старого `storage.json` в SQLite
+## Тестирование и Сборка
 
 ```bash
-go run ./cmd/migrate-json --from ./data/storage.json --to ./data/docshub.db
+go test -v -race ./...
+go vet ./...
+go build -o bin/docshub ./cmd/docshub
 ```

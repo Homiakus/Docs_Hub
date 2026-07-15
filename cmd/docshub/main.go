@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,7 +19,20 @@ import (
 	"github.com/homiakus/docshub-next/internal/httpapp"
 )
 
+const Version = "v0.3.0-alpha.1"
+
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-v":
+			fmt.Println("Docs_Hub", Version)
+			os.Exit(0)
+		case "healthcheck":
+			runHealthcheck(os.Args[2:])
+			return
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -62,7 +77,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("Docs Hub Next started", "addr", cfg.Addr, "db", cfg.DBPath, "tls", cfg.TLS.Enabled, "log_level", cfg.LogLevel)
+		logger.Info("Docs Hub Next started", "version", Version, "addr", cfg.Addr, "db", cfg.DBPath, "tls", cfg.TLS.Enabled, "log_level", cfg.LogLevel)
 		if cfg.TLS.Enabled {
 			errCh <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 		} else {
@@ -85,6 +100,26 @@ func main() {
 		logger.Error("shutdown", "err", err)
 	}
 	logger.Info("server stopped")
+}
+
+func runHealthcheck(args []string) {
+	fs := flag.NewFlagSet("healthcheck", flag.ExitOnError)
+	targetURL := fs.String("url", "http://127.0.0.1:8080/healthz", "Healthcheck target URL")
+	_ = fs.Parse(args)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(*targetURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Healthcheck failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "Healthcheck HTTP status: %d\n", resp.StatusCode)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 func parseLogLevel(s string) slog.Level {
