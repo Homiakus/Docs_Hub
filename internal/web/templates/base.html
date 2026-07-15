@@ -9,12 +9,14 @@
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
   <script defer src="/static/js/navigation/command-palette.js"></script>
+  <script defer src="/static/js/reader/toc.js"></script>
   {{if .Article.HasMermaid}}
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.mermaid){mermaid.initialize({startOnLoad:true,theme:'dark',securityLevel:'strict'})}})</script>
   {{end}}
 </head>
 <body class="{{if not .User}}auth-page{{end}}">
+<a href="#main-content" class="skip-link">Перейти к основному содержимому</a>
 {{if .User}}
 <div class="app-shell">
   {{template "components/sidebar" .}}
@@ -25,12 +27,12 @@
         <span aria-hidden="true"></span>
         <span aria-hidden="true"></span>
       </button>
-      <form class="search" action="/" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug" accesskey="s"></form>
+      <form class="search" action="/search" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug (Ctrl+K)" accesskey="s"></form>
       <div class="top-actions">
-        {{if .User}}<span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span><a class="button primary" href="/new">Создать</a>{{else}}<a class="button primary" href="/login">Войти</a>{{end}}
+        {{if .User}}<span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span><a class="btn btn-primary" href="/new">Создать</a>{{else}}<a class="btn btn-primary" href="/login">Войти</a>{{end}}
       </div>
     </header>
-    <main class="layout">{{template "content" .}}</main>
+    <main class="layout" id="main-content">{{template "content" .}}</main>
   </section>
 </div>
 {{else}}

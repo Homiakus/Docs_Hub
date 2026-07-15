@@ -55,6 +55,7 @@ type Article struct {
 	ID         int64
 	Slug       string
 	Title      string
+	Status     string
 	Content    string
 	HTML       template.HTML
 	Visibility string
@@ -211,11 +212,13 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/new", s.requireEditor(s.editNew))
 	r.Get("/edit/{slug}", s.requireEditor(s.editExisting))
 	r.Post("/save", s.requireEditor(s.saveArticle))
+	r.Put("/api/v1/documents/draft", s.requireEditor(s.saveDraftAPI))
 	r.Post("/api/preview", s.requireLogin(s.preview))
 	r.Post("/api/uploads", s.requireEditor(s.uploadFile))
 	r.Get("/api/graph", s.requireLogin(s.graphAPI))
 	r.Get("/uploads/{key}", s.requireLogin(s.serveUpload))
 	r.Get("/graph", s.requireLogin(s.graphPage))
+	r.Get("/pdf/viewer", s.requireLogin(s.pdfViewerPage))
 	r.Get("/admin", s.requireAdmin(s.admin))
 	r.Post("/admin/users", s.requireAdmin(s.adminSaveUser))
 	r.Post("/admin/users/password", s.requireAdmin(s.adminSetPassword))
@@ -333,6 +336,61 @@ func (s *Server) searchSuggestAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("content-type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"suggestions": results})
+}
+
+func (s *Server) saveDraftAPI(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID          int64  `json:"id"`
+		Title       string `json:"title"`
+		Content     string `json:"content"`
+		LockVersion int    `json:"lock_version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	u := userFrom(r.Context())
+	if req.ID != 0 {
+		var currentLock int
+		err := s.db.QueryRowContext(r.Context(), `SELECT coalesce(lock_version,1) FROM articles WHERE id=?`, req.ID).Scan(&currentLock)
+		if err == nil && req.LockVersion < currentLock {
+			w.Header().Set("content-type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":               "edit_conflict",
+				"server_lock_version": currentLock,
+			})
+			return
+		}
+	}
+
+	resHTML, _ := markdownx.Render(req.Content)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	if req.ID != 0 {
+		_, _ = s.db.ExecContext(r.Context(),
+			`UPDATE articles SET title=?, content=?, rendered_html=?, updated_at=? WHERE id=?`,
+			req.Title, req.Content, resHTML.HTML, now, req.ID)
+	} else {
+		slug := markdownx.Slugify(req.Title)
+		if slug == "" {
+			slug = "draft-" + fmt.Sprint(time.Now().Unix())
+		}
+		res, err := s.db.ExecContext(r.Context(),
+			`INSERT INTO articles(organization_id, space_id, slug, title, status, content, rendered_html, owner_id, created_at, updated_at)
+			 VALUES(1, 1, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
+			slug, req.Title, req.Content, resHTML.HTML, u.ID, now, now)
+		if err == nil {
+			req.ID, _ = res.LastInsertId()
+		}
+	}
+
+	w.Header().Set("content-type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id":           req.ID,
+		"status":       "draft_saved",
+		"lock_version": req.LockVersion + 1,
+	})
 }
 
 func (s *Server) listSpaces(ctx context.Context) ([]Space, error) {
@@ -746,6 +804,10 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) graphPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "graph", Page{Title: "Граф"})
+}
+
+func (s *Server) pdfViewerPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, r, "pdf/viewer", Page{Title: "Просмотр PDF"})
 }
 
 func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
@@ -1355,12 +1417,12 @@ func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article
 	if q != "" {
 		needle := strings.TrimPrefix(q, "#")
 		if strings.HasPrefix(q, "#") {
-			rows, err = s.db.QueryContext(ctx, `SELECT DISTINCT a.id,a.slug,a.title,a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,'') FROM articles a LEFT JOIN categories c ON c.id=a.category_id LEFT JOIN article_tags at ON at.article_id=a.id LEFT JOIN tags t ON t.id=at.tag_id WHERE a.deleted_at IS NULL AND (c.slug=? OR c.name=? OR t.name=?) ORDER BY a.updated_at DESC`, needle, needle, needle)
+			rows, err = s.db.QueryContext(ctx, `SELECT DISTINCT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id LEFT JOIN article_tags at ON at.article_id=a.id LEFT JOIN tags t ON t.id=at.tag_id WHERE a.deleted_at IS NULL AND (c.slug=? OR c.name=? OR t.name=?) ORDER BY a.updated_at DESC`, needle, needle, needle)
 		} else {
-			rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,'') FROM article_fts f JOIN articles a ON a.id=f.rowid LEFT JOIN categories c ON c.id=a.category_id WHERE article_fts MATCH ? AND a.deleted_at IS NULL ORDER BY rank`, needle+"*")
+			rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM article_fts f JOIN articles a ON a.id=f.rowid LEFT JOIN categories c ON c.id=a.category_id WHERE article_fts MATCH ? AND a.deleted_at IS NULL ORDER BY rank`, needle+"*")
 		}
 	} else {
-		rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,'') FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 100`)
+		rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 100`)
 	}
 	if err != nil {
 		return nil, err
@@ -1368,7 +1430,7 @@ func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article
 	var candidates []Article
 	for rows.Next() {
 		var a Article
-		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.UpdatedAt, &a.Visibility, &a.CategoryID, &a.Category); err == nil {
+		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.UpdatedAt, &a.Visibility, &a.CategoryID, &a.Category, &a.OwnerID); err == nil {
 			candidates = append(candidates, a)
 		}
 	}
@@ -1393,7 +1455,7 @@ func (s *Server) getArticle(ctx context.Context, slug string) (Article, error) {
 	}
 	var a Article
 	var html string
-	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category, &a.OwnerID)
+	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category, &a.OwnerID)
 	a.HTML = template.HTML(html)
 	if a.Content != "" {
 		if res, renderErr := markdownx.Render(a.Content); renderErr == nil {

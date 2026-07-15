@@ -5,6 +5,7 @@
 @import url('./components/badge.css');
 @import url('./components/input.css');
 @import url('./components/dialog.css');
+@import url('./utilities.css');
 
 /* Base Reset & Foundations */
 * { box-sizing: border-box; }

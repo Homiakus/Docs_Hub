@@ -2,30 +2,98 @@
 <form class="editor workspace-panel" method="post" action="/save">
   <input type="hidden" name="id" value="{{.Article.ID}}">
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-  <div class="pagehead">
+
+  <div class="pagehead" style="align-items: center;">
     <div>
-      <p class="eyebrow">Редактор</p>
-      <h1>{{if .Article.ID}}Правка статьи{{else}}Новая статья{{end}}</h1>
+      <span class="eyebrow">Корпоративный редактор</span>
+      <h1 class="text-page-title" style="margin: 0;">{{if .Article.ID}}Редактирование документа{{else}}Создание документа{{end}}</h1>
     </div>
-    <button class="button primary" type="submit">Сохранить</button>
+    <div style="display: flex; align-items: center; gap: var(--space-4);">
+      <span id="autosaveIndicator" style="font-size: 0.875rem; color: var(--text-tertiary);"></span>
+      <button class="btn btn-primary" type="submit">Опубликовать</button>
+    </div>
   </div>
+
   <div class="formgrid">
-    <label>Slug<input name="slug" value="{{.Article.Slug}}" placeholder="start-here"></label>
-    <label>Заголовок<input name="title" value="{{.Article.Title}}" placeholder="Заголовок"></label>
-    <label>Категория<select name="category_id"><option value="0">Без категории</option>{{range .AdminCategories}}<option value="{{.ID}}" {{if eq $.Article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select></label>
-    <label>Видимость<select name="visibility"><option value="authenticated" {{if eq .Article.Visibility "authenticated"}}selected{{end}}>Все вошедшие</option><option value="private" {{if eq .Article.Visibility "private"}}selected{{end}}>Приватно</option><option value="public" {{if eq .Article.Visibility "public"}}selected{{end}}>Публично</option></select></label>
+    <label>Заголовок документа
+      <input name="title" id="articleTitle" value="{{.Article.Title}}" placeholder="Введите понятное название статьи..." required class="form-control">
+    </label>
+    <label>Пространство
+      <select name="space_id" class="form-control">
+        {{range .Spaces}}
+        <option value="{{.ID}}">{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>Категория
+      <select name="category_id" class="form-control">
+        <option value="0">Без категории</option>
+        {{range .AdminCategories}}
+        <option value="{{.ID}}" {{if eq $.Article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </label>
+    <label>Видимость
+      <select name="visibility" class="form-control">
+        <option value="authenticated" {{if eq .Article.Visibility "authenticated"}}selected{{end}}>Для сотрудников</option>
+        <option value="private" {{if eq .Article.Visibility "private"}}selected{{end}}>Приватно</option>
+        <option value="public" {{if eq .Article.Visibility "public"}}selected{{end}}>Публично</option>
+      </select>
+    </label>
+    <label>Slug (URL)
+      <input name="slug" value="{{.Article.Slug}}" placeholder="автоматически из названия" class="form-control">
+    </label>
   </div>
-  <div class="dropzone" id="dropzone">
+
+  <!-- Formatting Toolbar -->
+  <div class="editor-toolbar" style="display: flex; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2); background: var(--surface-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-top: var(--space-4);">
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="bold" title="Жирный"><b>B</b></button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="italic" title="Курсив"><i>I</i></button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="h2" title="Заголовок H2">H2</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="h3" title="Заголовок H3">H3</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="list" title="Маркированный список">• Список</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="code" title="Встроенный код"><code>&lt;/&gt;</code></button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="codeblock" title="Блок кода">Блок кода</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="quote" title="Цитата/Примечание">” Цитата</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="table" title="Таблица">📊 Таблица</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="mermaid" title="Диаграмма Mermaid">📈 Диаграмма</button>
+  </div>
+
+  <!-- Media Dropzone -->
+  <div class="dropzone" id="dropzone" style="margin-top: var(--space-3);">
     <input type="file" id="mediaInput" accept="image/*,audio/*,video/*" multiple hidden>
     <div>
-      <strong>Перетащите изображения, аудио или видео в редактор</strong>
-      <p>Файл загрузится и вставится в текст как Markdown или media-тег.</p>
+      <strong>Перетащите изображения или медиа-файлы</strong>
+      <p>Файлы автоматически загрузятся и вставятся в позицию курсора.</p>
     </div>
-    <button class="button" type="button" id="mediaPicker">Выбрать файлы</button>
+    <button class="btn btn-secondary btn-sm" type="button" id="mediaPicker">Выбрать файлы</button>
   </div>
-  <div class="editorgrid">
-    <textarea name="content" id="content" spellcheck="false" data-upload-endpoint="/api/uploads">{{.Article.Content}}</textarea>
+
+  <!-- Editor Canvas & Split Live Preview -->
+  <div class="editorgrid" style="margin-top: var(--space-4);">
+    <textarea name="content" id="content" spellcheck="false" data-upload-endpoint="/api/uploads" placeholder="Начните писать документацию Markdown или используйте панели инструментов выше...">{{.Article.Content}}</textarea>
     <div id="preview" class="markdown preview"></div>
   </div>
 </form>
+
+<script defer src="/static/js/editor/autosave.js"></script>
+<script defer src="/static/js/editor/toolbar.js"></script>
+<script defer src="/static/js/editor/table-builder.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const editorEl = document.getElementById('content');
+    const titleEl = document.getElementById('articleTitle');
+    const indicatorEl = document.getElementById('autosaveIndicator');
+    const docId = parseInt('{{.Article.ID}}' || '0', 10);
+
+    if (window.DocumentAutosave) {
+      new DocumentAutosave({
+        editorEl,
+        titleEl,
+        docId,
+        indicatorEl,
+      });
+    }
+  });
+</script>
 {{end}}

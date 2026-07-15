@@ -1,7 +1,15 @@
 {{define "content"}}
-<section class="workspace-panel">
-  <div class="pagehead"><h1>Граф знаний</h1></div>
-  <div id="graph" class="graph"></div>
-</section>
+<div class="graph-page">
+  <div class="pagehead">
+    <div>
+      <span class="eyebrow">Интерактивный граф</span>
+      <h1 class="text-page-title">Граф связей базы знаний</h1>
+      <p class="text-secondary">Визуализация междокументных гиперссылок и структурных пространств.</p>
+    </div>
+  </div>
+
+  <div id="graph" class="graph" style="margin-top: var(--space-4);"></div>
+</div>
 <script>window.DOCSHUB_GRAPH_ENDPOINT='/api/graph';</script>
+<script defer src="/static/js/graph/graph-explorer.js"></script>
 {{end}}

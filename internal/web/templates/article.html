@@ -1,18 +1,33 @@
 {{define "content"}}
 <article class="doc-layout">
   <section class="doc-main">
-    <div class="pagehead">
+    {{template "components/breadcrumb" .}}
+
+    <div class="pagehead" style="align-items: flex-start;">
       <div>
-        <p class="eyebrow">{{.Article.Visibility}} · {{.Article.UpdatedAt}}{{if .Article.Tags}} · {{range .Article.Tags}}<span class="tag-chip">#{{.}}</span>{{end}}{{end}}</p>
-        <h1>{{.Article.Title}}</h1>
-        <p class="u-muted"><code>{{.Article.Slug}}</code></p>
+        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap;">
+          <span class="badge badge-{{.Article.Status}}">{{.Article.Status}}</span>
+          <span class="badge badge-published" style="background: var(--surface-secondary); color: var(--text-secondary); border-color: var(--border-subtle);">{{.Article.Visibility}}</span>
+          {{if .Article.Tags}}
+            {{range .Article.Tags}}<span class="tag-chip">#{{.}}</span>{{end}}
+          {{end}}
+        </div>
+        <h1 class="text-page-title" style="margin-bottom: var(--space-2);">{{.Article.Title}}</h1>
+        <p class="text-meta">
+          Обновлено: {{.Article.UpdatedAt}} · Slug: <code>{{.Article.Slug}}</code>
+        </p>
       </div>
-      {{if .CanWrite}}<a class="button" href="{{editPath .Article.Slug}}">Редактировать</a>{{end}}
+
+      <div style="display: flex; gap: var(--space-2);">
+        {{if .CanWrite}}
+        <a class="btn btn-primary" href="{{editPath .Article.Slug}}">Редактировать</a>
+        {{end}}
+      </div>
     </div>
 
     {{if .Article.Headings}}
-    <details class="toc" open>
-      <summary>Содержание</summary>
+    <details class="toc" open style="margin-bottom: var(--space-6);">
+      <summary>Содержание статьи</summary>
       <nav>
         {{range .Article.Headings}}
         <a href="#{{.ID}}" class="toc-{{.Level}}">{{.Text}}</a>
@@ -24,9 +39,10 @@
     <div class="markdown">{{.Article.HTML}}</div>
   </section>
 
+  <!-- Right Inspector Sidebar -->
   <aside class="inspector">
     <section>
-      <h2>История версий</h2>
+      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">История версий</h2>
       <div class="timeline">
         {{range .Versions}}
           <article>
@@ -35,12 +51,30 @@
             <p>{{.Summary}}</p>
             <time>{{.CreatedAt}}</time>
           </article>
-        {{else}}<p class="u-muted">Версий пока нет.</p>{{end}}
+        {{else}}
+          <p class="u-muted">Версий пока нет.</p>
+        {{end}}
       </div>
     </section>
+
     <section>
-      <h2>Backlinks</h2>
-      <div class="link-list">{{range .Backlinks}}<a href="{{articlePath .Slug}}">{{.Title}}</a>{{else}}<span class="u-muted">Нет обратных ссылок.</span>{{end}}</div>
+      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">Связи статьи (Backlinks)</h2>
+      <div class="link-list">
+        {{range .Backlinks}}
+          <a href="{{articlePath .Slug}}">{{.Title}}</a>
+        {{else}}
+          <span class="u-muted">Обратных ссылок не обнаружено.</span>
+        {{end}}
+      </div>
+    </section>
+
+    <section>
+      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">Свойства документа</h2>
+      <div style="font-size: 0.875rem; display: grid; gap: var(--space-2); color: var(--text-secondary);">
+        <div><strong>Формат:</strong> Markdown</div>
+        <div><strong>Язык:</strong> ru</div>
+        <div><strong>Блокировка:</strong> ver. 1</div>
+      </div>
     </section>
   </aside>
 </article>
