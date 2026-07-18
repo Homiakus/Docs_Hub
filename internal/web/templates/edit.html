@@ -1,78 +1,105 @@
 {{define "content"}}
-<form class="editor workspace-panel" method="post" action="/save">
+<form class="editor" id="documentEditor" method="post" action="/save">
   <input type="hidden" name="id" value="{{.Article.ID}}">
+  <input type="hidden" name="lock_version" value="{{.Article.LockVersion}}">
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
-  <div class="pagehead" style="align-items: center;">
-    <div>
-      <span class="eyebrow">Корпоративный редактор</span>
-      <h1 class="text-page-title" style="margin: 0;">{{if .Article.ID}}Редактирование документа{{else}}Создание документа{{end}}</h1>
+  <header class="editor-head">
+    <div class="editor-breadcrumb"><a href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">← Назад</a><span aria-hidden="true">/</span><span>{{if .Article.ID}}Редактирование{{else}}Новый документ{{end}}</span></div>
+    <div class="editor-status" id="autosaveIndicator" role="status" aria-live="polite"></div>
+    <div class="editor-head-actions">
+      <a class="btn btn-ghost" href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">Отмена</a>
+      <button class="btn btn-primary" type="submit" data-save-button><span aria-hidden="true">✓</span> Сохранить</button>
     </div>
-    <div style="display: flex; align-items: center; gap: var(--space-4);">
-      <span id="autosaveIndicator" style="font-size: 0.875rem; color: var(--text-tertiary);"></span>
-      <button class="btn btn-primary" type="submit">Опубликовать</button>
+  </header>
+
+  {{if .Templates}}
+  <section class="template-picker" aria-labelledby="templatePickerTitle">
+    <div><span class="eyebrow">Быстрый старт</span><h2 id="templatePickerTitle">Выберите структуру документа</h2></div>
+    <div class="template-picker-grid">
+      <a href="/new" class="template-option {{if not .TemplateID}}selected{{end}}"><span aria-hidden="true">◇</span><div><strong>Чистый документ</strong><small>Начать с пустой страницы</small></div></a>
+      {{range .Templates}}<a href="/new?template={{.ID}}" class="template-option {{if eq $.TemplateID .ID}}selected{{end}}"><span aria-hidden="true">✦</span><div><strong>{{.Title}}</strong><small>{{.Description}}</small></div></a>{{end}}
     </div>
-  </div>
+  </section>
+  {{end}}
 
-  <div class="formgrid">
-    <label>Заголовок документа
-      <input name="title" id="articleTitle" value="{{.Article.Title}}" placeholder="Введите понятное название статьи..." required class="form-control">
-    </label>
-    <label>Пространство
-      <select name="space_id" class="form-control">
-        {{range .Spaces}}
-        <option value="{{.ID}}">{{.Name}}</option>
-        {{end}}
-      </select>
-    </label>
-    <label>Категория
-      <select name="category_id" class="form-control">
-        <option value="0">Без категории</option>
-        {{range .AdminCategories}}
-        <option value="{{.ID}}" {{if eq $.Article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>
-        {{end}}
-      </select>
-    </label>
-    <label>Видимость
-      <select name="visibility" class="form-control">
-        <option value="authenticated" {{if eq .Article.Visibility "authenticated"}}selected{{end}}>Для сотрудников</option>
-        <option value="private" {{if eq .Article.Visibility "private"}}selected{{end}}>Приватно</option>
-        <option value="public" {{if eq .Article.Visibility "public"}}selected{{end}}>Публично</option>
-      </select>
-    </label>
-    <label>Slug (URL)
-      <input name="slug" value="{{.Article.Slug}}" placeholder="автоматически из названия" class="form-control">
-    </label>
-  </div>
+  <div class="editor-workspace">
+    <section class="editor-canvas" aria-labelledby="editorTitleLabel">
+      <div class="title-field">
+        <label class="sr-only" id="editorTitleLabel" for="articleTitle">Заголовок документа</label>
+        <input name="title" id="articleTitle" value="{{.Article.Title}}" placeholder="Название документа" required maxlength="180" autocomplete="off">
+        <span class="badge badge-{{.Article.Status}}">{{statusLabel .Article.Status}}</span>
+      </div>
 
-  <!-- Formatting Toolbar -->
-  <div class="editor-toolbar" style="display: flex; gap: var(--space-1); flex-wrap: wrap; padding: var(--space-2); background: var(--surface-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); margin-top: var(--space-4);">
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="bold" title="Жирный"><b>B</b></button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="italic" title="Курсив"><i>I</i></button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="h2" title="Заголовок H2">H2</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="h3" title="Заголовок H3">H3</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="list" title="Маркированный список">• Список</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="code" title="Встроенный код"><code>&lt;/&gt;</code></button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="codeblock" title="Блок кода">Блок кода</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="quote" title="Цитата/Примечание">” Цитата</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="table" title="Таблица">📊 Таблица</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-editor-action="mermaid" title="Диаграмма Mermaid">📈 Диаграмма</button>
-  </div>
+      <div class="editor-toolbar" role="toolbar" aria-label="Форматирование Markdown">
+        <div class="toolbar-group" role="group" aria-label="Начертание">
+          <button type="button" data-editor-action="bold" aria-label="Полужирный" title="Полужирный"><strong>B</strong></button>
+          <button type="button" data-editor-action="italic" aria-label="Курсив" title="Курсив"><em>I</em></button>
+          <button type="button" data-editor-action="code" aria-label="Встроенный код" title="Встроенный код">&lt;/&gt;</button>
+        </div>
+        <div class="toolbar-group" role="group" aria-label="Структура">
+          <button type="button" data-editor-action="h2" title="Заголовок второго уровня">H2</button>
+          <button type="button" data-editor-action="h3" title="Заголовок третьего уровня">H3</button>
+          <button type="button" data-editor-action="list" title="Маркированный список">☷</button>
+          <button type="button" data-editor-action="quote" title="Цитата">❞</button>
+        </div>
+        <div class="toolbar-group" role="group" aria-label="Вставка">
+          <button type="button" data-editor-action="codeblock" title="Блок кода">{ }</button>
+          <button type="button" data-editor-action="table" title="Таблица">▦</button>
+          <button type="button" data-editor-action="mermaid" title="Диаграмма Mermaid">⌘</button>
+        </div>
+        <span class="toolbar-help">Markdown · <kbd>Ctrl</kbd> + <kbd>S</kbd></span>
+      </div>
 
-  <!-- Media Dropzone -->
-  <div class="dropzone" id="dropzone" style="margin-top: var(--space-3);">
-    <input type="file" id="mediaInput" accept="image/*,audio/*,video/*" multiple hidden>
-    <div>
-      <strong>Перетащите изображения или медиа-файлы</strong>
-      <p>Файлы автоматически загрузятся и вставятся в позицию курсора.</p>
-    </div>
-    <button class="btn btn-secondary btn-sm" type="button" id="mediaPicker">Выбрать файлы</button>
-  </div>
+      <div class="editorgrid">
+        <div class="editor-pane">
+          <div class="pane-label"><span>Markdown</span><small id="editorWordCount">0 слов</small></div>
+          <label class="sr-only" for="content">Текст документа в Markdown</label>
+          <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Используйте Markdown или панель форматирования…">{{.Article.Content}}</textarea>
+        </div>
+        <div class="preview-pane">
+          <div class="pane-label"><span>Предпросмотр</span><small>Обновляется автоматически</small></div>
+          <div id="preview" class="markdown preview" aria-live="polite"></div>
+        </div>
+      </div>
 
-  <!-- Editor Canvas & Split Live Preview -->
-  <div class="editorgrid" style="margin-top: var(--space-4);">
-    <textarea name="content" id="content" spellcheck="false" data-upload-endpoint="/api/uploads" placeholder="Начните писать документацию Markdown или используйте панели инструментов выше...">{{.Article.Content}}</textarea>
-    <div id="preview" class="markdown preview"></div>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="mediaInput" accept="image/*,audio/*,video/*,application/pdf,.pdf" multiple hidden>
+        <span class="dropzone-icon" aria-hidden="true">⇧</span>
+        <div><strong>Добавьте вложения</strong><p>Перетащите файлы сюда или выберите изображения, медиа и PDF до 64 МБ.</p></div>
+        <button class="btn btn-secondary btn-sm" type="button" id="mediaPicker">Выбрать файлы</button>
+      </div>
+    </section>
+
+    <aside class="editor-settings" aria-label="Настройки документа">
+      <div class="settings-head"><div><span class="eyebrow">Параметры</span><h2>Свойства документа</h2></div><span aria-hidden="true">⚙</span></div>
+      <div class="settings-fields">
+        <label><span>Пространство</span><select name="space_id" class="form-control">
+          {{range .Spaces}}<option value="{{.ID}}" {{if eq $.Article.SpaceID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select></label>
+        <label><span>Категория</span><select name="category_id" class="form-control">
+          <option value="0">Без категории</option>
+          {{range .AdminCategories}}<option value="{{.ID}}" {{if eq $.Article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select></label>
+        <label><span>Доступ</span><select name="visibility" class="form-control">
+          <option value="authenticated" {{if eq .Article.Visibility "authenticated"}}selected{{end}}>Все сотрудники</option>
+          <option value="private" {{if eq .Article.Visibility "private"}}selected{{end}}>Только по доступу</option>
+          <option value="public" {{if eq .Article.Visibility "public"}}selected{{end}}>Публичный</option>
+        </select></label>
+        <label><span>Классификация</span><select name="classification" class="form-control">
+          <option value="internal" {{if eq .Article.Classification "internal"}}selected{{end}}>Внутренний</option>
+          <option value="public" {{if eq .Article.Classification "public"}}selected{{end}}>Публичный</option>
+          <option value="confidential" {{if eq .Article.Classification "confidential"}}selected{{end}}>Конфиденциальный</option>
+          <option value="restricted" {{if eq .Article.Classification "restricted"}}selected{{end}}>Ограниченный</option>
+        </select></label>
+        <label><span>Язык</span><select name="language" class="form-control">
+          <option value="ru" {{if eq .Article.Language "ru"}}selected{{end}}>Русский</option>
+          <option value="en" {{if eq .Article.Language "en"}}selected{{end}}>English</option>
+        </select></label>
+        <label><span>Slug</span><input name="slug" value="{{.Article.Slug}}" placeholder="создастся автоматически" class="form-control" autocomplete="off"></label>
+      </div>
+      <div class="settings-note"><span aria-hidden="true">i</span><p>Изменения автоматически сохраняются как черновик. Публикация выполняется через проверку статуса.</p></div>
+    </aside>
   </div>
 </form>
 
@@ -80,20 +107,12 @@
 <script defer src="/static/js/editor/toolbar.js"></script>
 <script defer src="/static/js/editor/table-builder.js"></script>
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const editorEl = document.getElementById('content');
-    const titleEl = document.getElementById('articleTitle');
-    const indicatorEl = document.getElementById('autosaveIndicator');
-    const docId = parseInt('{{.Article.ID}}' || '0', 10);
-
-    if (window.DocumentAutosave) {
-      new DocumentAutosave({
-        editorEl,
-        titleEl,
-        docId,
-        indicatorEl,
-      });
-    }
-  });
+document.addEventListener('DOMContentLoaded',()=>{
+  if(window.DocumentAutosave){new DocumentAutosave({
+    formEl:document.getElementById('documentEditor'),editorEl:document.getElementById('content'),
+    titleEl:document.getElementById('articleTitle'),docId:{{.Article.ID}},lockVersion:{{.Article.LockVersion}},
+    indicatorEl:document.getElementById('autosaveIndicator')
+  })}
+});
 </script>
 {{end}}

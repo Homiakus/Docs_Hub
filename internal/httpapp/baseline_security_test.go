@@ -183,6 +183,40 @@ func TestBaselineEditAuthorizationBypass(t *testing.T) {
 	}
 }
 
+func TestDraftsAreHiddenFromReaders(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	adminCSRF := loginTestUser(t, client, ts.URL, database)
+	saveArticle(t, client, ts.URL, url.Values{
+		"slug": {"draft-secret"}, "title": {"Unreleased Strategy"},
+		"visibility": {"authenticated"}, "content": {"not ready for readers"},
+	}, adminCSRF)
+	createTestUser(t, database, "draft_reader", "reader")
+	readerClient, err := newTestClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginAs(t, readerClient, ts.URL, "draft_reader", "user12345", database)
+
+	res, err := readerClient.Get(ts.URL + "/search")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if strings.Contains(string(body), "Unreleased Strategy") {
+		t.Fatal("reader search leaked an authenticated draft")
+	}
+	res, err = readerClient.Get(ts.URL + "/a/draft-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden && res.StatusCode != http.StatusNotFound {
+		t.Fatalf("reader opened a draft with status %d", res.StatusCode)
+	}
+}
+
 func newTestClient() (*http.Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {

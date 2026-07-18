@@ -1,95 +1,85 @@
-/* Docs_Hub Semantic Design Tokens System */
-
 :root {
-  /* Color Tokens - Light Palette Baseline */
-  --surface-canvas: #f8fafc;
+  --surface-canvas: #f6f7fb;
   --surface-primary: #ffffff;
-  --surface-secondary: #f1f5f9;
+  --surface-secondary: #f0f2f7;
   --surface-raised: #ffffff;
-  --surface-hover: #e2e8f0;
-  --surface-active: #cbd5e1;
-
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-tertiary: #64748b;
+  --surface-hover: #eef0f6;
+  --surface-active: #e4e7f0;
+  --surface-sidebar: #fbfbfd;
+  --text-primary: #171927;
+  --text-secondary: #5b6072;
+  --text-tertiary: #6f7485;
   --text-inverse: #ffffff;
-
-  --border-subtle: #e2e8f0;
-  --border-strong: #cbd5e1;
-
-  --action-primary: #2563eb;
-  --action-primary-hover: #1d4ed8;
-  --action-secondary: #475569;
-  --action-secondary-hover: #334155;
-
-  --status-success: #16a34a;
-  --status-success-bg: #f0fdf4;
-  --status-warning: #d97706;
-  --status-warning-bg: #fffbeb;
-  --status-danger: #dc2626;
-  --status-danger-bg: #fef2f2;
-  --status-info: #0284c7;
-  --status-info-bg: #f0f9ff;
-
-  --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #2563eb;
-
-  /* Spacing Scale */
-  --space-1: 0.25rem; /* 4px */
-  --space-2: 0.5rem;  /* 8px */
-  --space-3: 0.75rem; /* 12px */
-  --space-4: 1rem;    /* 16px */
-  --space-6: 1.5rem;  /* 24px */
-  --space-8: 2rem;    /* 32px */
-  --space-12: 3rem;   /* 48px */
-
-  /* Border Radii */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-full: 9999px;
-
-  /* Elevation Shadows */
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-
-  /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --border-subtle: #e7e8ee;
+  --border-strong: #d8dae4;
+  --action-primary: #5b5bd6;
+  --action-primary-hover: #4b4bc3;
+  --action-primary-soft: #eeeeff;
+  --action-secondary: #4f5567;
+  --action-secondary-hover: #363b4a;
+  --status-success: #16845b;
+  --status-success-bg: #e9f8f1;
+  --status-warning: #a76607;
+  --status-warning-bg: #fff5dc;
+  --status-danger: #c83d4e;
+  --status-danger-bg: #fff0f2;
+  --status-info: #3474c8;
+  --status-info-bg: #edf5ff;
+  --status-violet: #7455c8;
+  --status-violet-bg: #f2efff;
+  --focus-ring: 0 0 0 2px var(--surface-primary), 0 0 0 4px #7777e8;
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --radius-sm: .375rem;
+  --radius-md: .625rem;
+  --radius-lg: .875rem;
+  --radius-xl: 1.125rem;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgb(18 22 43 / .05);
+  --shadow-md: 0 8px 24px rgb(25 28 52 / .08), 0 1px 3px rgb(25 28 52 / .06);
+  --shadow-lg: 0 24px 60px rgb(20 23 48 / .16);
+  --transition-fast: 140ms ease;
+  --transition-normal: 240ms cubic-bezier(.2,.8,.2,1);
+  --sidebar-width: 252px;
+  --topbar-height: 68px;
 }
 
-/* Dark Theme Token Overrides */
 [data-theme="dark"] {
-  --surface-canvas: #0f172a;
-  --surface-primary: #1e293b;
-  --surface-secondary: #334155;
-  --surface-raised: #1e293b;
-  --surface-hover: #475569;
-  --surface-active: #64748b;
-
-  --text-primary: #f8fafc;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --text-inverse: #0f172a;
-
-  --border-subtle: #334155;
-  --border-strong: #475569;
-
-  --action-primary: #3b82f6;
-  --action-primary-hover: #60a5fa;
-
-  --status-success: #22c55e;
-  --status-success-bg: rgba(34, 197, 94, 0.15);
-  --status-warning: #f59e0b;
-  --status-warning-bg: rgba(245, 158, 11, 0.15);
-  --status-danger: #ef4444;
-  --status-danger-bg: rgba(239, 68, 68, 0.15);
-  --status-info: #38bdf8;
-  --status-info-bg: rgba(56, 189, 248, 0.15);
-
-  --focus-ring: 0 0 0 2px #0f172a, 0 0 0 4px #3b82f6;
-
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+  --surface-canvas: #11131b;
+  --surface-primary: #191c27;
+  --surface-secondary: #222633;
+  --surface-raised: #20232f;
+  --surface-hover: #292d3b;
+  --surface-active: #343949;
+  --surface-sidebar: #151720;
+  --text-primary: #f1f2f7;
+  --text-secondary: #b8bccb;
+  --text-tertiary: #858b9e;
+  --text-inverse: #fff;
+  --border-subtle: #292d3a;
+  --border-strong: #3a3f50;
+  --action-primary: #8181ed;
+  --action-primary-hover: #9696f3;
+  --action-primary-soft: #29294a;
+  --status-success: #57c994;
+  --status-success-bg: #17392e;
+  --status-warning: #e6ae4b;
+  --status-warning-bg: #3c3019;
+  --status-danger: #f07886;
+  --status-danger-bg: #402128;
+  --status-info: #76aef2;
+  --status-info-bg: #1d3049;
+  --status-violet: #ad94f2;
+  --status-violet-bg: #30284b;
+  --focus-ring: 0 0 0 2px var(--surface-primary), 0 0 0 4px #9696f3;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / .25);
+  --shadow-md: 0 10px 28px rgb(0 0 0 / .28);
+  --shadow-lg: 0 28px 70px rgb(0 0 0 / .42);
 }

@@ -1,90 +1,283 @@
-/* Knowledge Graph Explorer Interactive Module */
-
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const container = document.getElementById('graph');
   if (!container || !window.DOCSHUB_GRAPH_ENDPOINT) return;
+  const searchInput = document.getElementById('graphSearch');
+  const statusInput = document.getElementById('graphStatus');
+  const stats = document.getElementById('graphStats');
+  const accessibleList = document.getElementById('graphAccessibleList');
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const nodeWidth = 190;
+  const nodeHeight = 62;
+  let data = { nodes: [], links: [] };
+  let svg = null;
+  let viewport = null;
+  let transform = { x: 0, y: 0, scale: 1 };
+  let canvasSize = { width: 1, height: 1 };
+  let dragging = null;
 
-  fetch(window.DOCSHUB_GRAPH_ENDPOINT)
-    .then(res => res.json())
-    .then(graphData => {
-      renderGraphExplorer(container, graphData);
-    })
-    .catch(err => console.error('Graph data fetch error:', err));
+  const createSVG = (name, attrs = {}) => {
+    const element = document.createElementNS(svgNS, name);
+    Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, String(value)));
+    return element;
+  };
 
-  function renderGraphExplorer(el, data) {
-    const nodes = data.nodes || [];
-    const links = data.links || [];
+  try {
+    const response = await fetch(window.DOCSHUB_GRAPH_ENDPOINT);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    data = await response.json();
+    render();
+  } catch (error) {
+    showMessage('graph-error', 'Не удалось загрузить граф. Обновите страницу и попробуйте снова.');
+  }
 
-    const w = el.clientWidth || 900;
-    const h = el.clientHeight || 600;
-    const svgNS = 'http://www.w3.org/2000/svg';
+  function filteredData() {
+    const status = statusInput?.value || '';
+    const nodes = (data.nodes || []).filter((node) => !status || node.status === status);
+    const ids = new Set(nodes.map((node) => node.id));
+    const links = (data.links || []).filter((link) => ids.has(link.source) && ids.has(link.target));
+    return { nodes, links };
+  }
 
-    el.innerHTML = '';
-    const svg = document.createElementNS(svgNS, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-    svg.style.width = '100%';
-    svg.style.height = '65vh';
-    svg.style.backgroundColor = 'var(--surface-primary)';
-    svg.style.borderRadius = 'var(--radius-lg)';
-    svg.style.border = '1px solid var(--border-subtle)';
+  function render() {
+    const graph = filteredData();
+    if (!graph.nodes.length) {
+      showMessage('graph-empty', 'Нет документов для выбранного фильтра.');
+      updateStats(graph);
+      renderAccessibleList(graph.nodes);
+      return;
+    }
+    const positions = layeredLayout(graph.nodes, graph.links);
+    canvasSize = positions.size;
+    container.replaceChildren();
+    svg = createSVG('svg', { role: 'img', 'aria-label': `Граф: ${graph.nodes.length} документов и ${graph.links.length} связей` });
+    const defs = createSVG('defs');
+    const marker = createSVG('marker', { id: 'graphArrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto', markerUnits: 'strokeWidth' });
+    marker.appendChild(createSVG('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'var(--border-strong)' }));
+    const filter = createSVG('filter', { id: 'nodeShadow', x: '-20%', y: '-20%', width: '140%', height: '150%' });
+    filter.appendChild(createSVG('feDropShadow', { dx: 0, dy: 2, stdDeviation: 3, 'flood-color': '#111426', 'flood-opacity': '.10' }));
+    defs.append(marker, filter);
+    svg.appendChild(defs);
+    viewport = createSVG('g');
+    svg.appendChild(viewport);
+    const edgeLayer = createSVG('g', { class: 'graph-edges' });
+    const nodeLayer = createSVG('g', { class: 'graph-nodes' });
+    viewport.append(edgeLayer, nodeLayer);
 
-    el.appendChild(svg);
+    graph.links.forEach((link, index) => drawEdge(edgeLayer, link, positions.map, index));
+    graph.nodes.forEach((node) => drawNode(nodeLayer, node, positions.map.get(node.id)));
+    container.appendChild(svg);
+    bindCanvasEvents();
+    fit();
+    applySearch();
+    updateStats(graph);
+    renderAccessibleList(graph.nodes);
+  }
 
-    // Calculate node coordinates in a circular topology layout
-    const posMap = new Map();
-    nodes.forEach((node, i) => {
-      const angle = (i / nodes.length) * 2 * Math.PI;
-      const radius = Math.min(w, h) * 0.35;
-      const x = w / 2 + Math.cos(angle) * radius;
-      const y = h / 2 + Math.sin(angle) * radius;
-      posMap.set(node.id, { x, y, label: node.label });
+  function layeredLayout(nodes, links) {
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    const outgoing = new Map(nodes.map((node) => [node.id, []]));
+    const indegree = new Map(nodes.map((node) => [node.id, 0]));
+    links.forEach((link) => {
+      if (!nodeMap.has(link.source) || !nodeMap.has(link.target) || link.source === link.target) return;
+      outgoing.get(link.source).push(link.target);
+      indegree.set(link.target, (indegree.get(link.target) || 0) + 1);
     });
-
-    // Draw connecting edges
-    links.forEach(link => {
-      const src = posMap.get(link.source);
-      const tgt = posMap.get(link.target);
-      if (!src || !tgt) return;
-
-      const line = document.createElementNS(svgNS, 'line');
-      line.setAttribute('x1', src.x);
-      line.setAttribute('y1', src.y);
-      line.setAttribute('x2', tgt.x);
-      line.setAttribute('y2', tgt.y);
-      line.setAttribute('stroke', 'var(--border-strong)');
-      line.setAttribute('stroke-width', '1.5');
-      line.setAttribute('opacity', '0.6');
-      svg.appendChild(line);
-    });
-
-    // Draw graph nodes
-    nodes.forEach(node => {
-      const pos = posMap.get(node.id);
-      const group = document.createElementNS(svgNS, 'g');
-      group.style.cursor = 'pointer';
-
-      const circle = document.createElementNS(svgNS, 'circle');
-      circle.setAttribute('cx', pos.x);
-      circle.setAttribute('cy', pos.y);
-      circle.setAttribute('r', '16');
-      circle.setAttribute('fill', 'var(--action-primary)');
-
-      const text = document.createElementNS(svgNS, 'text');
-      text.setAttribute('x', pos.x);
-      text.setAttribute('y', pos.y + 30);
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('fill', 'var(--text-primary)');
-      text.setAttribute('font-size', '12');
-      text.textContent = node.label.length > 20 ? node.label.slice(0, 18) + '...' : node.label;
-
-      group.appendChild(circle);
-      group.appendChild(text);
-
-      group.addEventListener('click', () => {
-        window.location.href = `/a/${encodeURIComponent(node.id)}`;
+    const level = new Map(nodes.map((node) => [node.id, 0]));
+    const queue = nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id).sort();
+    const processed = new Set();
+    while (queue.length) {
+      const source = queue.shift();
+      processed.add(source);
+      (outgoing.get(source) || []).forEach((target) => {
+        level.set(target, Math.max(level.get(target) || 0, (level.get(source) || 0) + 1));
+        indegree.set(target, indegree.get(target) - 1);
+        if (indegree.get(target) === 0) queue.push(target);
       });
+    }
+    nodes.filter((node) => !processed.has(node.id)).sort((a, b) => a.title?.localeCompare?.(b.title) || a.label.localeCompare(b.label)).forEach((node, index) => {
+      level.set(node.id, Math.max(level.get(node.id) || 0, index % 3));
+    });
+    const logicalLayers = new Map();
+    nodes.forEach((node) => {
+      const key = level.get(node.id) || 0;
+      if (!logicalLayers.has(key)) logicalLayers.set(key, []);
+      logicalLayers.get(key).push(node);
+    });
+    const ordered = Array.from(logicalLayers.keys()).sort((a, b) => a - b);
+    const columns = [];
+    const maxRows = 10;
+    ordered.forEach((key) => {
+      const layerNodes = logicalLayers.get(key).sort((a, b) => String(a.label).localeCompare(String(b.label), 'ru'));
+      for (let index = 0; index < layerNodes.length; index += maxRows) columns.push(layerNodes.slice(index, index + maxRows));
+    });
+    const maxColumnRows = Math.max(...columns.map((column) => column.length), 1);
+    const gapX = 82;
+    const gapY = 28;
+    const margin = 56;
+    const height = margin * 2 + maxColumnRows * nodeHeight + (maxColumnRows - 1) * gapY;
+    const width = margin * 2 + columns.length * nodeWidth + Math.max(0, columns.length - 1) * gapX;
+    const positions = new Map();
+    columns.forEach((column, columnIndex) => {
+      const columnHeight = column.length * nodeHeight + Math.max(0, column.length - 1) * gapY;
+      const offsetY = (height - columnHeight) / 2;
+      column.forEach((node, rowIndex) => positions.set(node.id, {
+        x: margin + columnIndex * (nodeWidth + gapX),
+        y: offsetY + rowIndex * (nodeHeight + gapY),
+      }));
+    });
+    return { map: positions, size: { width, height } };
+  }
 
-      svg.appendChild(group);
+  function drawEdge(layer, link, positions, index) {
+    const source = positions.get(link.source);
+    const target = positions.get(link.target);
+    if (!source || !target) return;
+    const group = createSVG('g', { class: 'graph-edge' });
+    const sourceRight = source.x + nodeWidth;
+    const sourceLeft = source.x;
+    const targetLeft = target.x;
+    const targetRight = target.x + nodeWidth;
+    const sourceY = source.y + nodeHeight / 2;
+    const targetY = target.y + nodeHeight / 2;
+    let d;
+    let labelX;
+    let labelY;
+    if (target.x > source.x) {
+      const middle = (sourceRight + targetLeft) / 2 + ((index % 7) - 3) * 4;
+      d = `M ${sourceRight} ${sourceY} H ${middle} V ${targetY} H ${targetLeft - 7}`;
+      labelX = middle + 4;
+      labelY = (sourceY + targetY) / 2 - 5;
+    } else {
+      const channel = Math.min(sourceLeft, targetLeft) - 30 - (index % 6) * 7;
+      d = `M ${sourceLeft} ${sourceY} H ${channel} V ${targetY} H ${targetRight + 7}`;
+      labelX = channel + 4;
+      labelY = (sourceY + targetY) / 2 - 5;
+    }
+    const path = createSVG('path', { d, fill: 'none', stroke: 'var(--border-strong)', 'stroke-width': 1.35, 'marker-end': 'url(#graphArrow)' });
+    group.appendChild(path);
+    if (link.label) {
+      const label = createSVG('text', { x: labelX, y: labelY, fill: 'var(--text-tertiary)', 'font-size': 9, 'font-family': 'Inter, sans-serif' });
+      label.textContent = truncate(link.label, 22);
+      group.appendChild(label);
+    }
+    layer.appendChild(group);
+  }
+
+  function drawNode(layer, node, position) {
+    if (!position) return;
+    const link = createSVG('a', { href: `/a/${encodeURIComponent(node.id)}`, class: 'graph-node', 'data-id': node.id, 'data-search': `${node.label} ${node.space || ''}`.toLowerCase() });
+    link.setAttribute('aria-label', `${node.label}. ${statusName(node.status)}. ${node.space || 'Без пространства'}`);
+    const group = createSVG('g', { transform: `translate(${position.x} ${position.y})`, filter: 'url(#nodeShadow)' });
+    const rect = createSVG('rect', { width: nodeWidth, height: nodeHeight, rx: 10, fill: 'var(--surface-primary)', stroke: 'var(--border-subtle)' });
+    const strip = createSVG('rect', { width: 4, height: nodeHeight - 16, x: 0, y: 8, rx: 2, fill: statusColor(node.status) });
+    const icon = createSVG('rect', { x: 13, y: 15, width: 30, height: 30, rx: 8, fill: 'var(--action-primary-soft)' });
+    const glyph = createSVG('text', { x: 28, y: 35, 'text-anchor': 'middle', fill: 'var(--action-primary)', 'font-size': 15, 'font-weight': 700, 'font-family': 'Inter, sans-serif' });
+    glyph.textContent = '≡';
+    const title = createSVG('text', { x: 52, y: 26, fill: 'var(--text-primary)', 'font-size': 11, 'font-weight': 650, 'font-family': 'Inter, sans-serif' });
+    title.textContent = truncate(node.label, 23);
+    const meta = createSVG('text', { x: 52, y: 43, fill: 'var(--text-tertiary)', 'font-size': 8.5, 'font-family': 'Inter, sans-serif' });
+    meta.textContent = truncate(`${node.space || 'Общее'} · ${statusName(node.status)}`, 29);
+    group.append(rect, strip, icon, glyph, title, meta);
+    link.appendChild(group);
+    layer.appendChild(link);
+  }
+
+  function statusColor(status) {
+    return ({ published: 'var(--status-success)', draft: 'var(--status-warning)', in_review: 'var(--status-info)', approved: 'var(--status-violet)', archived: 'var(--text-tertiary)', rejected: 'var(--status-danger)' })[status] || 'var(--text-tertiary)';
+  }
+  function statusName(status) {
+    return ({ published: 'Опубликован', draft: 'Черновик', in_review: 'На проверке', approved: 'Одобрен', archived: 'Архив', rejected: 'Отклонён' })[status] || status || 'Без статуса';
+  }
+  function truncate(value, limit) {
+    const text = String(value || '');
+    return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
+  }
+
+  function applyTransform() {
+    viewport?.setAttribute('transform', `translate(${transform.x} ${transform.y}) scale(${transform.scale})`);
+  }
+  function fit() {
+    if (!svg) return;
+    const rect = container.getBoundingClientRect();
+    const scale = Math.min((rect.width - 28) / canvasSize.width, (rect.height - 28) / canvasSize.height, 1.15);
+    transform.scale = Math.max(.18, scale);
+    transform.x = (rect.width - canvasSize.width * transform.scale) / 2;
+    transform.y = (rect.height - canvasSize.height * transform.scale) / 2;
+    applyTransform();
+  }
+  function zoom(factor, centerX = container.clientWidth / 2, centerY = container.clientHeight / 2) {
+    const previous = transform.scale;
+    const next = Math.min(2.4, Math.max(.16, previous * factor));
+    transform.x = centerX - ((centerX - transform.x) / previous) * next;
+    transform.y = centerY - ((centerY - transform.y) / previous) * next;
+    transform.scale = next;
+    applyTransform();
+  }
+
+  function bindCanvasEvents() {
+    svg.addEventListener('pointerdown', (event) => {
+      if (event.target.closest('.graph-node')) return;
+      dragging = { x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y };
+      svg.setPointerCapture(event.pointerId);
+    });
+    svg.addEventListener('pointermove', (event) => {
+      if (!dragging) return;
+      transform.x = dragging.tx + event.clientX - dragging.x;
+      transform.y = dragging.ty + event.clientY - dragging.y;
+      applyTransform();
+    });
+    const stop = () => { dragging = null; };
+    svg.addEventListener('pointerup', stop);
+    svg.addEventListener('pointercancel', stop);
+    svg.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const rect = container.getBoundingClientRect();
+      zoom(event.deltaY < 0 ? 1.12 : .89, event.clientX - rect.left, event.clientY - rect.top);
+    }, { passive: false });
+  }
+
+  function applySearch() {
+    const query = String(searchInput?.value || '').trim().toLowerCase();
+    const nodes = Array.from(container.querySelectorAll('.graph-node'));
+    let firstMatch = null;
+    nodes.forEach((node) => {
+      const match = !query || node.dataset.search.includes(query);
+      node.style.opacity = match ? '1' : '.16';
+      if (match && query && !firstMatch) firstMatch = node;
+    });
+    if (query && firstMatch) firstMatch.parentNode.appendChild(firstMatch);
+  }
+
+  function updateStats(graph) {
+    if (stats) stats.textContent = `${graph.nodes.length} узлов · ${graph.links.length} связей`;
+  }
+  function renderAccessibleList(nodes) {
+    if (!accessibleList) return;
+    accessibleList.replaceChildren();
+    nodes.forEach((node) => {
+      const link = document.createElement('a');
+      link.href = `/a/${encodeURIComponent(node.id)}`;
+      const title = document.createElement('span');
+      title.textContent = node.label;
+      const meta = document.createElement('small');
+      meta.textContent = `${node.space || 'Общее'} · ${statusName(node.status)}`;
+      link.append(title, meta);
+      accessibleList.appendChild(link);
     });
   }
+  function showMessage(className, message) {
+    const block = document.createElement('div');
+    block.className = className;
+    const paragraph = document.createElement('p');
+    paragraph.textContent = message;
+    block.appendChild(paragraph);
+    container.replaceChildren(block);
+  }
+
+  searchInput?.addEventListener('input', applySearch);
+  statusInput?.addEventListener('change', render);
+  document.getElementById('graphFit')?.addEventListener('click', fit);
+  document.getElementById('graphZoomIn')?.addEventListener('click', () => zoom(1.2));
+  document.getElementById('graphZoomOut')?.addEventListener('click', () => zoom(.82));
+  window.addEventListener('resize', () => window.requestAnimationFrame(fit));
 });

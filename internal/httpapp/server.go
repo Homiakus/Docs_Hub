@@ -30,6 +30,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/homiakus/docshub-next/internal/application"
 	"github.com/homiakus/docshub-next/internal/auth"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
@@ -52,20 +53,39 @@ type User struct {
 }
 
 type Article struct {
-	ID         int64
-	Slug       string
-	Title      string
-	Status     string
-	Content    string
-	HTML       template.HTML
-	Visibility string
-	CategoryID int64
-	Category   string
-	UpdatedAt  string
-	HasMermaid bool
-	Headings   []markdownx.Heading
-	Tags       []string
-	OwnerID    int64
+	ID             int64
+	OrganizationID int64
+	SpaceID        int64
+	SpaceName      string
+	SpaceSlug      string
+	Slug           string
+	Title          string
+	Status         string
+	Classification string
+	Language       string
+	LockVersion    int
+	Content        string
+	HTML           template.HTML
+	Visibility     string
+	CategoryID     int64
+	Category       string
+	UpdatedAt      string
+	HasMermaid     bool
+	Headings       []markdownx.Heading
+	Tags           []string
+	OwnerID        int64
+}
+
+type WorkflowAction struct {
+	Action string
+	Label  string
+	Style  string
+}
+
+type ArticleFilter struct {
+	Query     string
+	SpaceSlug string
+	Status    string
 }
 
 type Category struct {
@@ -156,11 +176,26 @@ type Page struct {
 	WikiLinks       []WikiLinkItem
 	Backlinks       []Article
 	Versions        []VersionEntry
-	CanRead        bool
-	CanWrite       bool
-	Stats          string
-	Activities     []ActivityItem
-	CSRFToken      string
+	CanRead         bool
+	CanWrite        bool
+	Stats           string
+	UserCount       int
+	ArticleCount    int
+	CategoryCount   int
+	FileCount       int
+	Activities      []ActivityItem
+	Templates       []application.DocumentTemplate
+	TemplateID      string
+	SearchSpace     string
+	SearchStatus    string
+	WorkflowActions []WorkflowAction
+	PDFKey          string
+	PDFURL          string
+	PDFName         string
+	PDFPageCount    int
+	CurrentPath     string
+	IsEditor        bool
+	CSRFToken       string
 }
 
 func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
@@ -179,8 +214,10 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 			return template.URL("/edit/" + url.PathEscape(slug))
 		},
 		"tagPath": func(tag string) template.URL {
-			return template.URL("/?q=" + url.QueryEscape("#"+tag))
+			return template.URL("/search?q=" + url.QueryEscape("#"+tag))
 		},
+		"statusLabel": statusLabel,
+		"initial":     firstRune,
 	}
 	tpl, err := template.New("base.html").Funcs(funcs).ParseFS(web.FS, "templates/base.html", "templates/components/*.html")
 	if err != nil {
@@ -213,12 +250,14 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/edit/{slug}", s.requireEditor(s.editExisting))
 	r.Post("/save", s.requireEditor(s.saveArticle))
 	r.Put("/api/v1/documents/draft", s.requireEditor(s.saveDraftAPI))
+	r.Post("/documents/{id}/workflow", s.requireEditor(s.transitionWorkflow))
 	r.Post("/api/preview", s.requireLogin(s.preview))
 	r.Post("/api/uploads", s.requireEditor(s.uploadFile))
 	r.Get("/api/graph", s.requireLogin(s.graphAPI))
 	r.Get("/uploads/{key}", s.requireLogin(s.serveUpload))
 	r.Get("/graph", s.requireLogin(s.graphPage))
 	r.Get("/pdf/viewer", s.requireLogin(s.pdfViewerPage))
+	r.Get("/pdf/viewer/{key}", s.requireLogin(s.pdfViewerPage))
 	r.Get("/admin", s.requireAdmin(s.admin))
 	r.Post("/admin/users", s.requireAdmin(s.adminSaveUser))
 	r.Post("/admin/users/password", s.requireAdmin(s.adminSetPassword))
@@ -234,12 +273,13 @@ func (s *Server) Routes() http.Handler {
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p Page) {
 	p.SiteName = s.cfg.SiteName
 	p.User = userFrom(r.Context())
+	p.CurrentPath = r.URL.Path
 	p.CSRFToken = csrfFrom(r.Context())
 	if p.Categories == nil {
 		p.Categories, _ = s.listCategories(r.Context(), p.User)
 	}
 	if p.Spaces == nil {
-		p.Spaces, _ = s.listSpaces(r.Context())
+		p.Spaces, _ = s.listSpaces(r.Context(), p.User)
 	}
 	if p.Activities == nil {
 		p.Activities, _ = s.listRecentActivity(r.Context(), p.User)
@@ -295,6 +335,9 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 			recent = append(recent, a)
 		}
 	}
+	drafts = limitArticles(drafts, 4)
+	reviewQueue = limitArticles(reviewQueue, 5)
+	recent = limitArticles(recent, 8)
 
 	s.render(w, r, "home", Page{
 		Title:       "Обзор",
@@ -308,12 +351,19 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	arts, err := s.listArticles(r.Context(), userFrom(r.Context()), q)
+	spaceSlug := strings.TrimSpace(r.URL.Query().Get("space"))
+	status := validSearchStatus(r.URL.Query().Get("status"))
+	arts, err := s.listArticlesFiltered(r.Context(), userFrom(r.Context()), ArticleFilter{
+		Query: q, SpaceSlug: spaceSlug, Status: status,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	s.render(w, r, "search", Page{Title: "Поиск", Query: q, Articles: arts})
+	s.render(w, r, "search", Page{
+		Title: "Поиск", Query: q, Articles: arts,
+		SearchSpace: spaceSlug, SearchStatus: status,
+	})
 }
 
 func (s *Server) searchSuggestAPI(w http.ResponseWriter, r *http.Request) {
@@ -340,82 +390,207 @@ func (s *Server) searchSuggestAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveDraftAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID          int64  `json:"id"`
-		Title       string `json:"title"`
-		Content     string `json:"content"`
-		LockVersion int    `json:"lock_version"`
+		ID             int64  `json:"id"`
+		Title          string `json:"title"`
+		Slug           string `json:"slug"`
+		Content        string `json:"content"`
+		Visibility     string `json:"visibility"`
+		Classification string `json:"classification"`
+		Language       string `json:"language"`
+		SpaceID        int64  `json:"space_id"`
+		CategoryID     int64  `json:"category_id"`
+		LockVersion    int    `json:"lock_version"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), 400)
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 3<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_request", "Некорректные данные черновика")
 		return
 	}
 	u := userFrom(r.Context())
+	if u == nil {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Требуется вход")
+		return
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		req.Title = "Без названия"
+	}
+	req.Visibility = validVisibility(req.Visibility)
+	req.Classification = validClassification(req.Classification)
+	req.Language = validLanguage(req.Language)
+	if req.SpaceID == 0 {
+		req.SpaceID = 1
+	}
+	if !s.spaceExists(r.Context(), req.SpaceID) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_space", "Пространство не найдено")
+		return
+	}
+	categoryName, categorySlug, err := s.categoryMeta(r.Context(), req.CategoryID)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_category", err.Error())
+		return
+	}
+	rendered, err := markdownx.Render(req.Content)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid_markdown", err.Error())
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	var slug string
+	var currentLock int
 	if req.ID != 0 {
-		var currentLock int
-		err := s.db.QueryRowContext(r.Context(), `SELECT coalesce(lock_version,1) FROM articles WHERE id=?`, req.ID).Scan(&currentLock)
-		if err == nil && req.LockVersion < currentLock {
-			w.Header().Set("content-type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error":               "edit_conflict",
+		var ownerID int64
+		var currentVisibility string
+		if err := s.db.QueryRowContext(r.Context(), `
+			SELECT slug,coalesce(owner_id,0),visibility,coalesce(lock_version,1)
+			FROM articles WHERE id=? AND deleted_at IS NULL`, req.ID).
+			Scan(&slug, &ownerID, &currentVisibility, &currentLock); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, http.StatusNotFound, "not_found", "Документ не найден")
+			} else {
+				writeJSONError(w, http.StatusInternalServerError, "database_error", "Не удалось прочитать документ")
+			}
+			return
+		}
+		if !s.canEditDocument(r.Context(), u, req.ID, ownerID, currentVisibility) {
+			writeJSONError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для изменения документа")
+			return
+		}
+		if req.LockVersion == 0 {
+			req.LockVersion = currentLock
+		}
+	}
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "database_error", "Не удалось начать сохранение")
+		return
+	}
+	defer tx.Rollback()
+
+	var nextLock int
+	if req.ID == 0 {
+		slug, err = s.uniqueSlug(r.Context(), tx, 0, firstNonEmpty(req.Slug, req.Title, "draft"))
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "slug_error", "Не удалось создать адрес документа")
+			return
+		}
+		result, execErr := tx.ExecContext(r.Context(), `
+			INSERT INTO articles(
+				organization_id,space_id,slug,title,status,classification,language,lock_version,
+				content,rendered_html,owner_id,visibility,category_id,created_at,updated_at
+			) VALUES(1,?,?,?,'draft',?,?,1,?,?,?,?,?,?,?)`,
+			req.SpaceID, slug, req.Title, req.Classification, req.Language,
+			req.Content, rendered.HTML, u.ID, req.Visibility, nullableID(req.CategoryID), now, now)
+		if execErr != nil {
+			writeJSONError(w, http.StatusInternalServerError, "save_failed", "Не удалось создать черновик")
+			return
+		}
+		req.ID, err = result.LastInsertId()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "save_failed", "Не удалось определить черновик")
+			return
+		}
+		nextLock = 1
+	} else {
+		result, execErr := tx.ExecContext(r.Context(), `
+			UPDATE articles SET title=?,content=?,rendered_html=?,visibility=?,classification=?,language=?,
+				space_id=?,category_id=?,lock_version=lock_version+1,updated_at=?
+			WHERE id=? AND deleted_at IS NULL AND lock_version=?`,
+			req.Title, req.Content, rendered.HTML, req.Visibility, req.Classification, req.Language,
+			req.SpaceID, nullableID(req.CategoryID), now, req.ID, req.LockVersion)
+		if execErr != nil {
+			writeJSONError(w, http.StatusInternalServerError, "save_failed", "Не удалось сохранить черновик")
+			return
+		}
+		affected, _ := result.RowsAffected()
+		if affected != 1 {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "edit_conflict", "message": "Документ был изменён в другой вкладке",
 				"server_lock_version": currentLock,
 			})
 			return
 		}
+		nextLock = req.LockVersion + 1
 	}
 
-	resHTML, _ := markdownx.Render(req.Content)
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	if req.ID != 0 {
-		_, _ = s.db.ExecContext(r.Context(),
-			`UPDATE articles SET title=?, content=?, rendered_html=?, updated_at=? WHERE id=?`,
-			req.Title, req.Content, resHTML.HTML, now, req.ID)
-	} else {
-		slug := markdownx.Slugify(req.Title)
-		if slug == "" {
-			slug = "draft-" + fmt.Sprint(time.Now().Unix())
-		}
-		res, err := s.db.ExecContext(r.Context(),
-			`INSERT INTO articles(organization_id, space_id, slug, title, status, content, rendered_html, owner_id, created_at, updated_at)
-			 VALUES(1, 1, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
-			slug, req.Title, req.Content, resHTML.HTML, u.ID, now, now)
-		if err == nil {
-			req.ID, _ = res.LastInsertId()
-		}
+	if err := s.syncArticleDerivedData(r.Context(), tx, req.ID, req.Title, slug, req.Content, categoryName, categorySlug, rendered); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "index_failed", "Не удалось обновить индекс документа")
+		return
+	}
+	metadata, _ := json.Marshal(map[string]any{"slug": slug, "title": req.Title, "autosave": true})
+	if _, err := tx.ExecContext(r.Context(), `
+		INSERT INTO audit_events(actor_id,action,entity_type,entity_id,ip,metadata_json,created_at)
+		VALUES(?,?,?,?,?,?,?)`, u.ID, "article.autosave", "article", fmt.Sprint(req.ID), clientIP(r), string(metadata), now); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "audit_failed", "Не удалось завершить сохранение")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "save_failed", "Не удалось завершить сохранение")
+		return
 	}
 
-	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"id":           req.ID,
-		"status":       "draft_saved",
-		"lock_version": req.LockVersion + 1,
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": req.ID, "slug": slug, "status": "draft_saved", "lock_version": nextLock,
+		"saved_at": now,
 	})
 }
 
-func (s *Server) listSpaces(ctx context.Context) ([]Space, error) {
+func (s *Server) listSpaces(ctx context.Context, u *User) ([]Space, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT s.id, s.name, s.slug, s.description, COUNT(a.id)
+		`SELECT s.id,s.name,s.slug,s.description,coalesce(a.id,0),coalesce(a.status,''),
+			coalesce(a.visibility,''),coalesce(a.owner_id,0)
 		 FROM spaces s
 		 LEFT JOIN articles a ON a.space_id = s.id AND a.deleted_at IS NULL
-		 GROUP BY s.id
-		 ORDER BY s.name`)
+		 ORDER BY lower(s.name),a.updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var spaces []Space
+	type spaceCandidate struct {
+		space   Space
+		article Article
+	}
+	var candidates []spaceCandidate
 	for rows.Next() {
-		var sp Space
-		if err := rows.Scan(&sp.ID, &sp.Name, &sp.Slug, &sp.Description, &sp.Count); err == nil {
-			spaces = append(spaces, sp)
+		var candidate spaceCandidate
+		if err := rows.Scan(
+			&candidate.space.ID, &candidate.space.Name, &candidate.space.Slug, &candidate.space.Description,
+			&candidate.article.ID, &candidate.article.Status, &candidate.article.Visibility, &candidate.article.OwnerID,
+		); err != nil {
+			rows.Close()
+			return nil, err
 		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	spaceOrder := make([]int64, 0)
+	spacesByID := make(map[int64]Space)
+	for _, candidate := range candidates {
+		sp := candidate.space
+		current, exists := spacesByID[sp.ID]
+		if !exists {
+			current = sp
+			spaceOrder = append(spaceOrder, sp.ID)
+		}
+		if candidate.article.ID > 0 && s.canViewArticle(ctx, u, candidate.article) {
+			current.Count++
+		}
+		spacesByID[sp.ID] = current
+	}
+	spaces := make([]Space, 0, len(spaceOrder))
+	for _, id := range spaceOrder {
+		spaces = append(spaces, spacesByID[id])
 	}
 	return spaces, nil
 }
 
 func (s *Server) spacesPage(w http.ResponseWriter, r *http.Request) {
-	spaces, err := s.listSpaces(r.Context())
+	spaces, err := s.listSpaces(r.Context(), userFrom(r.Context()))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -432,19 +607,33 @@ func (s *Server) showSpacePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r.Context())
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id, slug, title, content, visibility, updated_at FROM articles WHERE space_id=? AND deleted_at IS NULL ORDER BY updated_at DESC`, sp.ID)
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id,slug,title,coalesce(status,'published'),content,visibility,updated_at,
+			coalesce(owner_id,0),coalesce(lock_version,1),coalesce(classification,'internal'),coalesce(language,'ru')
+		FROM articles WHERE space_id=? AND deleted_at IS NULL ORDER BY updated_at DESC`, sp.ID)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	defer rows.Close()
-	var articles []Article
+	var candidates []Article
 	for rows.Next() {
 		var a Article
-		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Content, &a.Visibility, &a.UpdatedAt); err == nil {
-			if s.canRead(r.Context(), u, a.ID, a.Visibility) {
-				articles = append(articles, a)
-			}
+		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.Content, &a.Visibility, &a.UpdatedAt, &a.OwnerID, &a.LockVersion, &a.Classification, &a.Language); err != nil {
+			rows.Close()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		a.SpaceID, a.SpaceName, a.SpaceSlug = sp.ID, sp.Name, sp.Slug
+		candidates = append(candidates, a)
+	}
+	if err := rows.Close(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var articles []Article
+	for _, a := range candidates {
+		if s.canViewArticle(r.Context(), u, a) {
+			articles = append(articles, a)
 		}
 	}
 	sp.Count = len(articles)
@@ -498,19 +687,38 @@ func (s *Server) article(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if !s.canRead(r.Context(), userFrom(r.Context()), a.ID, a.Visibility) {
+	u := userFrom(r.Context())
+	if !s.canViewArticle(r.Context(), u, a) {
 		http.Error(w, "forbidden", 403)
 		return
 	}
-	back, _ := s.backlinks(r.Context(), userFrom(r.Context()), a.Slug)
-	wikiLinks, _ := s.articleWikiLinks(r.Context(), userFrom(r.Context()), a.ID, a.Slug)
+	back, _ := s.backlinks(r.Context(), u, a.Slug)
+	wikiLinks, _ := s.articleWikiLinks(r.Context(), u, a.ID, a.Slug)
 	versions, _ := s.articleVersions(r.Context(), a.ID)
-	s.render(w, r, "article", Page{Title: a.Title, Article: a, WikiLinks: wikiLinks, Backlinks: back, Versions: versions, CanWrite: s.canWrite(userFrom(r.Context()))})
+	s.render(w, r, "article", Page{
+		Title: a.Title, Article: a, WikiLinks: wikiLinks, Backlinks: back, Versions: versions,
+		CanWrite:        s.canEditDocument(r.Context(), u, a.ID, a.OwnerID, a.Visibility),
+		CurrentSpace:    Space{ID: a.SpaceID, Name: a.SpaceName, Slug: a.SpaceSlug},
+		WorkflowActions: s.workflowActions(r.Context(), u, a),
+		Notice:          r.URL.Query().Get("notice"),
+	})
 }
 
 func (s *Server) editNew(w http.ResponseWriter, r *http.Request) {
 	categories, _ := s.listAdminCategories(r.Context())
-	s.render(w, r, "edit", Page{Title: "Новая статья", Article: Article{Visibility: "authenticated"}, AdminCategories: categories})
+	templateService := application.NewTemplateService()
+	templateID := strings.TrimSpace(r.URL.Query().Get("template"))
+	article := Article{Visibility: "authenticated", Status: "draft", Classification: "internal", Language: "ru", SpaceID: 1, LockVersion: 1}
+	if requestedSpace, _ := strconv.ParseInt(r.URL.Query().Get("space"), 10, 64); requestedSpace > 0 && s.spaceExists(r.Context(), requestedSpace) {
+		article.SpaceID = requestedSpace
+	}
+	if selected := templateService.GetTemplateByID(templateID); selected != nil {
+		article.Content = selected.Content
+	}
+	s.render(w, r, "edit", Page{
+		Title: "Новый документ", Article: article, AdminCategories: categories,
+		Templates: templateService.ListTemplates(), TemplateID: templateID, IsEditor: true,
+	})
 }
 
 func (s *Server) editExisting(w http.ResponseWriter, r *http.Request) {
@@ -525,7 +733,7 @@ func (s *Server) editExisting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	categories, _ := s.listAdminCategories(r.Context())
-	s.render(w, r, "edit", Page{Title: "Редактирование", Article: a, AdminCategories: categories})
+	s.render(w, r, "edit", Page{Title: "Редактирование", Article: a, AdminCategories: categories, IsEditor: true})
 }
 
 func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
@@ -535,10 +743,12 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 	}
 	u := userFrom(r.Context())
 	id, _ := strconv.ParseInt(r.Form.Get("id"), 10, 64)
+	lockVersion, _ := strconv.Atoi(r.Form.Get("lock_version"))
+	var currentLock int
 	if id != 0 {
 		var ownerID int64
 		var currentVis string
-		err := s.db.QueryRowContext(r.Context(), `SELECT coalesce(owner_id,0), visibility FROM articles WHERE id=? AND deleted_at IS NULL`, id).Scan(&ownerID, &currentVis)
+		err := s.db.QueryRowContext(r.Context(), `SELECT coalesce(owner_id,0),visibility,coalesce(lock_version,1) FROM articles WHERE id=? AND deleted_at IS NULL`, id).Scan(&ownerID, &currentVis, &currentLock)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -550,6 +760,9 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 		if !s.canEditDocument(r.Context(), u, id, ownerID, currentVis) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
+		}
+		if lockVersion == 0 {
+			lockVersion = currentLock
 		}
 	} else {
 		if !s.canEditDocument(r.Context(), u, 0, u.ID, "authenticated") {
@@ -569,9 +782,16 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 		title = "Без названия"
 	}
 	content := r.Form.Get("content")
-	visibility := r.Form.Get("visibility")
-	if visibility == "" {
-		visibility = "authenticated"
+	visibility := validVisibility(r.Form.Get("visibility"))
+	classification := validClassification(r.Form.Get("classification"))
+	language := validLanguage(r.Form.Get("language"))
+	spaceID, _ := strconv.ParseInt(r.Form.Get("space_id"), 10, 64)
+	if spaceID == 0 {
+		spaceID = 1
+	}
+	if !s.spaceExists(r.Context(), spaceID) {
+		http.Error(w, "пространство не найдено", http.StatusBadRequest)
+		return
 	}
 	categoryID, _ := strconv.ParseInt(r.Form.Get("category_id"), 10, 64)
 	categoryName, categorySlug, err := s.categoryMeta(r.Context(), categoryID)
@@ -611,62 +831,50 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 		hasPrevious = true
 	}
 	if id == 0 {
-		row, err := tx.ExecContext(r.Context(), `INSERT INTO articles(slug,title,content,rendered_html,owner_id,visibility,created_at,updated_at,category_id) VALUES(?,?,?,?,?,?,?,?,?)`, slug, title, content, res.HTML, u.ID, visibility, now, now, nullableID(categoryID))
+		row, err := tx.ExecContext(r.Context(), `
+			INSERT INTO articles(
+				organization_id,space_id,slug,title,status,classification,language,lock_version,
+				content,rendered_html,owner_id,visibility,created_at,updated_at,category_id
+			) VALUES(1,?,?,?,'draft',?,?,1,?,?,?,?,?,?,?)`,
+			spaceID, slug, title, classification, language, content, res.HTML, u.ID, visibility, now, now, nullableID(categoryID))
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		id, _ = row.LastInsertId()
-	} else {
-		_, err = tx.ExecContext(r.Context(), `UPDATE articles SET slug=?, title=?, content=?, rendered_html=?, visibility=?, updated_at=?, category_id=? WHERE id=?`, slug, title, content, res.HTML, visibility, now, nullableID(categoryID), id)
+		id, err = row.LastInsertId()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
+			return
+		}
+	} else {
+		result, updateErr := tx.ExecContext(r.Context(), `
+			UPDATE articles SET slug=?,title=?,content=?,rendered_html=?,visibility=?,classification=?,language=?,
+				space_id=?,updated_at=?,category_id=?,lock_version=lock_version+1
+			WHERE id=? AND deleted_at IS NULL AND lock_version=?`,
+			slug, title, content, res.HTML, visibility, classification, language,
+			spaceID, now, nullableID(categoryID), id, lockVersion)
+		err = updateErr
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			http.Error(w, "Документ был изменён в другой вкладке. Обновите страницу перед повторным сохранением.", http.StatusConflict)
 			return
 		}
 	}
 	var versionNo int
 	if err := tx.QueryRowContext(r.Context(), `SELECT coalesce(max(version_no),0)+1 FROM article_versions WHERE article_id=?`, id).Scan(&versionNo); err != nil {
-		s.log.Error("saveArticle version query", "err", err)
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	if _, err := tx.ExecContext(r.Context(), `INSERT INTO article_versions(article_id, version_no, title, content, rendered_html, author_id, created_at) VALUES(?,?,?,?,?,?,?)`, id, versionNo, title, content, res.HTML, u.ID, now); err != nil {
-		s.log.Error("saveArticle insert version", "err", err)
+		http.Error(w, err.Error(), 500)
+		return
 	}
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_tags WHERE article_id=?`, id); err != nil {
-		s.log.Error("saveArticle delete tags", "err", err)
-	}
-	tags := articleSearchTags(res.Tags, categoryName, categorySlug)
-	for _, tag := range tags {
-		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag); err != nil {
-			s.log.Error("saveArticle insert tag", "err", err, "tag", tag)
-		}
-		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_tags(article_id, tag_id) SELECT ?, id FROM tags WHERE name=?`, id, tag); err != nil {
-			s.log.Error("saveArticle insert article_tag", "err", err, "tag", tag)
-		}
-	}
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM links WHERE from_article_id=?`, id); err != nil {
-		s.log.Error("saveArticle delete links", "err", err)
-	}
-	for _, l := range res.Links {
-		if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO links(from_article_id, target_slug, label) VALUES(?,?,?)`, id, l.Slug, l.Label); err != nil {
-			s.log.Error("saveArticle insert link", "err", err, "slug", l.Slug)
-		}
-	}
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_files WHERE article_id=?`, id); err != nil {
-		s.log.Error("saveArticle delete article_files", "err", err)
-	}
-	for _, key := range extractUploadKeys(content) {
-		var fileID int64
-		if err := tx.QueryRowContext(r.Context(), `SELECT id FROM files WHERE storage_key=?`, key).Scan(&fileID); err == nil {
-			if _, err := tx.ExecContext(r.Context(), `INSERT OR IGNORE INTO article_files(article_id, file_id, role) VALUES(?,?,?)`, id, fileID, "inline"); err != nil {
-				s.log.Error("saveArticle insert article_file", "err", err, "key", key)
-			}
-		}
-	}
-	if _, err := tx.ExecContext(r.Context(), `DELETE FROM article_fts WHERE rowid=?`, id); err != nil {
-		s.log.Error("saveArticle delete fts", "err", err)
-	}
-	if _, err := tx.ExecContext(r.Context(), `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, id, title, slug, content, strings.Join(tags, " ")); err != nil {
-		s.log.Error("saveArticle insert fts", "err", err)
+	if err := s.syncArticleDerivedData(r.Context(), tx, id, title, slug, content, categoryName, categorySlug, res); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	current := articleSnapshot{Slug: slug, Title: title, Content: content, Visibility: visibility, CategoryID: categoryID}
 	summary := summarizeArticleChange(previous, current, hasPrevious)
@@ -681,13 +889,132 @@ func (s *Server) saveArticle(w http.ResponseWriter, r *http.Request) {
 		metadata = []byte("{}")
 	}
 	if _, err := tx.ExecContext(r.Context(), `INSERT INTO audit_events(actor_id, action, entity_type, entity_id, ip, metadata_json, created_at) VALUES(?,?,?,?,?,?,?)`, u.ID, "article.save", "article", fmt.Sprint(id), clientIP(r), string(metadata), now); err != nil {
-		s.log.Error("saveArticle insert audit", "err", err)
+		http.Error(w, err.Error(), 500)
+		return
 	}
 	if err := tx.Commit(); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	http.Redirect(w, r, "/a/"+url.PathEscape(slug), http.StatusSeeOther)
+}
+
+func (s *Server) transitionWorkflow(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	documentID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || documentID < 1 {
+		http.NotFound(w, r)
+		return
+	}
+	u := userFrom(r.Context())
+	var article Article
+	if err := s.db.QueryRowContext(r.Context(), `
+		SELECT id,slug,title,coalesce(status,'published'),visibility,coalesce(owner_id,0),coalesce(lock_version,1)
+		FROM articles WHERE id=? AND deleted_at IS NULL`, documentID).Scan(
+		&article.ID, &article.Slug, &article.Title, &article.Status, &article.Visibility, &article.OwnerID, &article.LockVersion,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	action := strings.TrimSpace(r.Form.Get("action"))
+	nextStatus, allowed := s.workflowTransitionAllowed(r.Context(), u, article, action)
+	if !allowed {
+		http.Error(w, "Недопустимый переход статуса или недостаточно прав", http.StatusUnprocessableEntity)
+		return
+	}
+	expectedLock, _ := strconv.Atoi(r.Form.Get("lock_version"))
+	if expectedLock == 0 {
+		expectedLock = article.LockVersion
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	var archivedAt any
+	if nextStatus == "archived" {
+		archivedAt = now
+	}
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(r.Context(), `
+		UPDATE articles SET status=?,lock_version=lock_version+1,updated_at=?,archived_at=?
+		WHERE id=? AND deleted_at IS NULL AND lock_version=?`, nextStatus, now, archivedAt, article.ID, expectedLock)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		http.Error(w, "Документ уже изменён. Обновите страницу и повторите действие.", http.StatusConflict)
+		return
+	}
+	metadata, _ := json.Marshal(map[string]any{"from": article.Status, "to": nextStatus, "action": action})
+	if _, err := tx.ExecContext(r.Context(), `
+		INSERT INTO audit_events(actor_id,action,entity_type,entity_id,ip,metadata_json,created_at)
+		VALUES(?,?,?,?,?,?,?)`, u.ID, "article.workflow", "article", fmt.Sprint(article.ID), clientIP(r), string(metadata), now); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	notice := "Статус изменён: " + statusLabel(nextStatus)
+	http.Redirect(w, r, "/a/"+url.PathEscape(article.Slug)+"?notice="+url.QueryEscape(notice), http.StatusSeeOther)
+}
+
+func (s *Server) workflowActions(ctx context.Context, u *User, article Article) []WorkflowAction {
+	var actions []WorkflowAction
+	add := func(action, label, style string) {
+		if _, allowed := s.workflowTransitionAllowed(ctx, u, article, action); allowed {
+			actions = append(actions, WorkflowAction{Action: action, Label: label, Style: style})
+		}
+	}
+	switch article.Status {
+	case "draft", "rejected", "":
+		add("submit_review", "Отправить на проверку", "primary")
+	case "in_review":
+		add("approve", "Одобрить", "primary")
+		add("return_draft", "Вернуть в черновики", "secondary")
+	case "approved":
+		add("publish", "Опубликовать", "primary")
+		add("return_draft", "Вернуть в черновики", "secondary")
+	case "published":
+		add("archive", "В архив", "secondary")
+	case "archived":
+		add("reopen", "Вернуть в черновики", "primary")
+	}
+	return actions
+}
+
+func (s *Server) workflowTransitionAllowed(ctx context.Context, u *User, article Article, action string) (string, bool) {
+	if u == nil {
+		return "", false
+	}
+	canEdit := s.canEditDocument(ctx, u, article.ID, article.OwnerID, article.Visibility)
+	switch action {
+	case "submit_review":
+		return "in_review", canEdit && (article.Status == "draft" || article.Status == "rejected" || article.Status == "")
+	case "approve":
+		return "approved", article.Status == "in_review" && (u.Role == "admin" || (u.Role == "editor" && s.canViewArticle(ctx, u, article)))
+	case "return_draft":
+		return "draft", (article.Status == "in_review" || article.Status == "approved") && (u.Role == "admin" || canEdit)
+	case "publish":
+		return "published", article.Status == "approved" && u.Role == "admin"
+	case "archive":
+		return "archived", article.Status == "published" && u.Role == "admin"
+	case "reopen":
+		return "draft", article.Status == "archived" && u.Role == "admin"
+	default:
+		return "", false
+	}
 }
 
 func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
@@ -728,7 +1055,7 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 	mimeType := detectMediaMIME(header.Filename, header.Header.Get("Content-Type"), data)
 	kind := mediaKind(mimeType)
 	if kind == "" {
-		http.Error(w, "only image, audio, and video files are supported", http.StatusUnsupportedMediaType)
+		http.Error(w, "поддерживаются изображения, аудио, видео и PDF", http.StatusUnsupportedMediaType)
 		return
 	}
 	sum := sha256.Sum256(data)
@@ -758,15 +1085,30 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	pageCount := 0
+	if kind == "pdf" {
+		pageCount = pdfPageCount(data)
+		if _, err := s.db.ExecContext(r.Context(), `UPDATE files SET page_count=? WHERE sha256=?`, pageCount, sha); err != nil {
+			s.log.Error("uploadFile update PDF page count", "err", err)
+		}
+	}
 
 	fileURL := "/uploads/" + url.PathEscape(storageKey)
+	viewerURL := ""
+	snippetURL := fileURL
+	if kind == "pdf" {
+		viewerURL = "/pdf/viewer/" + url.PathEscape(storageKey)
+		snippetURL = viewerURL
+	}
 	w.Header().Set("content-type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"kind":     kind,
-		"url":      fileURL,
-		"filename": header.Filename,
-		"mime":     mimeType,
-		"markdown": mediaSnippet(kind, fileURL, header.Filename),
+		"kind":       kind,
+		"url":        fileURL,
+		"viewer_url": viewerURL,
+		"filename":   header.Filename,
+		"mime":       mimeType,
+		"page_count": pageCount,
+		"markdown":   mediaSnippet(kind, snippetURL, header.Filename),
 	}); err != nil {
 		s.log.Error("uploadFile encode", "err", err)
 	}
@@ -789,11 +1131,7 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := userFrom(r.Context())
-	if u == nil && !s.fileHasPublicArticle(r.Context(), fileID) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	if u != nil && u.Role != "admin" && uploadedBy != u.ID && !s.userCanReadFile(r.Context(), u, fileID) {
+	if !s.canAccessFile(r.Context(), u, fileID, uploadedBy) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -807,24 +1145,58 @@ func (s *Server) graphPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pdfViewerPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, r, "pdf/viewer", Page{Title: "Просмотр PDF"})
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		key = r.URL.Query().Get("key")
+	}
+	if decoded, err := url.PathUnescape(key); err == nil {
+		key = decoded
+	}
+	if !validStorageKey(key) {
+		http.NotFound(w, r)
+		return
+	}
+	var fileID, uploadedBy int64
+	var mimeType, originalName string
+	var pageCount int
+	if err := s.db.QueryRowContext(r.Context(), `
+		SELECT id,mime,original_name,coalesce(uploaded_by,0),coalesce(page_count,0)
+		FROM files WHERE storage_key=?`, key).Scan(&fileID, &mimeType, &originalName, &uploadedBy, &pageCount); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if mimeType != "application/pdf" || !s.canAccessFile(r.Context(), userFrom(r.Context()), fileID, uploadedBy) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if pageCount < 1 {
+		pageCount = 1
+	}
+	s.render(w, r, "pdf/viewer", Page{
+		Title: "PDF · " + originalName, PDFKey: key,
+		PDFURL: "/uploads/" + url.PathEscape(key), PDFName: originalName, PDFPageCount: pageCount,
+	})
 }
 
 func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,slug,title,visibility FROM articles WHERE deleted_at IS NULL ORDER BY title`)
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.visibility,coalesce(a.owner_id,0),
+			coalesce(s.name,''),coalesce(s.slug,'')
+		FROM articles a LEFT JOIN spaces s ON s.id=a.space_id
+		WHERE a.deleted_at IS NULL ORDER BY lower(a.title)`)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	type candidate struct {
-		id         int64
-		slug, title, vis string
+		id, ownerID                                int64
+		slug, title, status, vis, space, spaceSlug string
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
-		if err := rows.Scan(&item.id, &item.slug, &item.title, &item.vis); err == nil {
+		if err := rows.Scan(&item.id, &item.slug, &item.title, &item.status, &item.vis, &item.ownerID, &item.space, &item.spaceSlug); err == nil {
 			candidates = append(candidates, item)
 		}
 	}
@@ -833,25 +1205,28 @@ func (s *Server) graphAPI(w http.ResponseWriter, r *http.Request) {
 	var nodes []map[string]string
 	accessibleSlugs := make(map[string]bool)
 	for _, item := range candidates {
-		if s.canRead(r.Context(), u, item.id, item.vis) {
-			nodes = append(nodes, map[string]string{"id": item.slug, "label": item.title})
+		if s.canViewArticle(r.Context(), u, Article{ID: item.id, Status: item.status, Visibility: item.vis, OwnerID: item.ownerID}) {
+			nodes = append(nodes, map[string]string{
+				"id": item.slug, "label": item.title, "status": item.status,
+				"space": item.space, "space_slug": item.spaceSlug,
+			})
 			accessibleSlugs[item.slug] = true
 		}
 	}
-	lr, err := s.db.QueryContext(r.Context(), `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id WHERE a.deleted_at IS NULL`)
+	lr, err := s.db.QueryContext(r.Context(), `SELECT a.slug,l.target_slug,coalesce(l.label,'') FROM links l JOIN articles a ON a.id=l.from_article_id WHERE a.deleted_at IS NULL`)
 	if err != nil {
 		s.log.Error("graphAPI query links", "err", err)
 	} else {
 		defer lr.Close()
 		var links []map[string]string
 		for lr.Next() {
-			var a, b string
-			if err := lr.Scan(&a, &b); err != nil {
+			var a, b, label string
+			if err := lr.Scan(&a, &b, &label); err != nil {
 				s.log.Error("graphAPI scan link", "err", err)
 				continue
 			}
 			if accessibleSlugs[a] && accessibleSlugs[b] {
-				links = append(links, map[string]string{"source": a, "target": b})
+				links = append(links, map[string]string{"source": a, "target": b, "label": label})
 			}
 		}
 		w.Header().Set("content-type", "application/json")
@@ -890,6 +1265,10 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request) {
 		Notice:          r.URL.Query().Get("notice"),
 		Error:           r.URL.Query().Get("error"),
 		Stats:           fmt.Sprintf("Пользователи: %d\nСтатьи: %d\nКатегории: %d\nФайлы: %d", users, articles, categories, files),
+		UserCount:       users,
+		ArticleCount:    articles,
+		CategoryCount:   categories,
+		FileCount:       files,
 		Articles:        adminArticles,
 		AdminUsers:      adminUsers,
 		AdminCategories: adminCategories,
@@ -1221,14 +1600,19 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Upload all attachments, build filename→URL map
-	attachMap := make(map[string]string) // original filename → /uploads/key
+	// Upload all attachments, build filename→viewer map.
+	type importedAttachment struct {
+		URL  string
+		Kind string
+	}
+	attachMap := make(map[string]importedAttachment)
 	for _, a := range attachments {
 		mimeType := detectMediaMIME(a.Name, "", a.Content)
 		if mimeType == "" {
 			continue
 		}
-		if mediaKind(mimeType) == "" {
+		kind := mediaKind(mimeType)
+		if kind == "" {
 			continue
 		}
 		sum := sha256.Sum256(a.Content)
@@ -1249,7 +1633,14 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 			sha, storageKey, filepath.Base(a.Name), mimeType, len(a.Content), u.ID, now); err != nil {
 			s.log.Error("obsidian import insert file", "err", err, "name", a.Name)
 		}
-		attachMap[filepath.Base(a.Name)] = "/uploads/" + url.PathEscape(storageKey)
+		attachmentURL := "/uploads/" + url.PathEscape(storageKey)
+		if kind == "pdf" {
+			attachmentURL = "/pdf/viewer/" + url.PathEscape(storageKey)
+			if _, err := s.db.ExecContext(r.Context(), `UPDATE files SET page_count=? WHERE sha256=?`, pdfPageCount(a.Content), sha); err != nil {
+				s.log.Error("obsidian import update PDF page count", "err", err, "name", a.Name)
+			}
+		}
+		attachMap[filepath.Base(a.Name)] = importedAttachment{URL: attachmentURL, Kind: kind}
 		importedFiles++
 	}
 
@@ -1269,11 +1660,11 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 			}
 			filename := strings.TrimSpace(parts[1])
 			width := parts[2]
-			if url, ok := attachMap[filename]; ok {
-				if width != "" {
-					return fmt.Sprintf(`<img src="%s" width="%s" alt="%s">`, url, width, filename)
+			if attachment, ok := attachMap[filename]; ok {
+				if attachment.Kind == "image" && width != "" {
+					return fmt.Sprintf(`<img src="%s" width="%s" alt="%s">`, attachment.URL, width, filename)
 				}
-				return fmt.Sprintf("![%s](%s)", filename, url)
+				return mediaSnippet(attachment.Kind, attachment.URL, filename)
 			}
 			// Attachment not found in vault — leave as plain text link
 			return fmt.Sprintf("[📎 %s](%s)", filename, filename)
@@ -1297,8 +1688,11 @@ func (s *Server) importObsidian(w http.ResponseWriter, r *http.Request) {
 
 		slug, _ = s.uniqueSlug(r.Context(), tx, 0, slug)
 
-		result, err := tx.ExecContext(r.Context(),
-			`INSERT INTO articles(slug,title,content,rendered_html,owner_id,visibility,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+		result, err := tx.ExecContext(r.Context(), `
+			INSERT INTO articles(
+				organization_id,space_id,slug,title,status,classification,language,lock_version,
+				content,rendered_html,owner_id,visibility,created_at,updated_at
+			) VALUES(1,1,?,?,'draft','internal','ru',1,?,?,?,?,?,?)`,
 			slug, title, content, res.HTML, u.ID, "authenticated", now, now)
 		if err != nil {
 			tx.Rollback()
@@ -1412,27 +1806,61 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article, error) {
-	var rows *sql.Rows
-	var err error
-	if q != "" {
-		needle := strings.TrimPrefix(q, "#")
-		if strings.HasPrefix(q, "#") {
-			rows, err = s.db.QueryContext(ctx, `SELECT DISTINCT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id LEFT JOIN article_tags at ON at.article_id=a.id LEFT JOIN tags t ON t.id=at.tag_id WHERE a.deleted_at IS NULL AND (c.slug=? OR c.name=? OR t.name=?) ORDER BY a.updated_at DESC`, needle, needle, needle)
-		} else {
-			rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM article_fts f JOIN articles a ON a.id=f.rowid LEFT JOIN categories c ON c.id=a.category_id WHERE article_fts MATCH ? AND a.deleted_at IS NULL ORDER BY rank`, needle+"*")
-		}
-	} else {
-		rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 100`)
+	return s.listArticlesFiltered(ctx, u, ArticleFilter{Query: q})
+}
+
+func (s *Server) listArticlesFiltered(ctx context.Context, u *User, filter ArticleFilter) ([]Article, error) {
+	filter.Query = strings.TrimSpace(filter.Query)
+	filter.SpaceSlug = strings.TrimSpace(filter.SpaceSlug)
+	filter.Status = validSearchStatus(filter.Status)
+
+	selectSQL := `SELECT DISTINCT
+		a.id,coalesce(a.organization_id,1),coalesce(a.space_id,1),coalesce(s.name,''),coalesce(s.slug,''),
+		a.slug,a.title,coalesce(a.status,'published'),a.content,a.updated_at,a.visibility,
+		coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0),
+		coalesce(a.lock_version,1),coalesce(a.classification,'internal'),coalesce(a.language,'ru')`
+	fromSQL := ` FROM articles a LEFT JOIN spaces s ON s.id=a.space_id LEFT JOIN categories c ON c.id=a.category_id`
+	where := []string{"a.deleted_at IS NULL"}
+	args := make([]any, 0, 8)
+	orderBy := " ORDER BY a.updated_at DESC"
+
+	if strings.HasPrefix(filter.Query, "#") {
+		fromSQL += ` LEFT JOIN article_tags at ON at.article_id=a.id LEFT JOIN tags t ON t.id=at.tag_id`
+		needle := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(filter.Query, "#")))
+		where = append(where, `(lower(c.slug)=? OR lower(c.name)=? OR lower(t.name)=?)`)
+		args = append(args, needle, needle, needle)
+	} else if filter.Query != "" {
+		fromSQL = ` FROM article_fts f JOIN articles a ON a.id=f.rowid LEFT JOIN spaces s ON s.id=a.space_id LEFT JOIN categories c ON c.id=a.category_id`
+		where = append(where, `article_fts MATCH ?`)
+		args = append(args, ftsPrefixQuery(filter.Query))
+		orderBy = " ORDER BY rank,a.updated_at DESC"
 	}
+	if filter.SpaceSlug != "" {
+		where = append(where, `s.slug=?`)
+		args = append(args, filter.SpaceSlug)
+	}
+	if filter.Status != "" {
+		where = append(where, `coalesce(a.status,'published')=?`)
+		args = append(args, filter.Status)
+	}
+
+	query := selectSQL + fromSQL + " WHERE " + strings.Join(where, " AND ") + orderBy + " LIMIT 200"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	var candidates []Article
 	for rows.Next() {
 		var a Article
-		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.UpdatedAt, &a.Visibility, &a.CategoryID, &a.Category, &a.OwnerID); err == nil {
-			candidates = append(candidates, a)
+		if err := rows.Scan(
+			&a.ID, &a.OrganizationID, &a.SpaceID, &a.SpaceName, &a.SpaceSlug,
+			&a.Slug, &a.Title, &a.Status, &a.Content, &a.UpdatedAt, &a.Visibility,
+			&a.CategoryID, &a.Category, &a.OwnerID, &a.LockVersion, &a.Classification, &a.Language,
+		); err != nil {
+			rows.Close()
+			return nil, err
 		}
+		candidates = append(candidates, a)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1442,7 +1870,7 @@ func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article
 	}
 	var out []Article
 	for _, a := range candidates {
-		if s.canRead(ctx, u, a.ID, a.Visibility) {
+		if s.canViewArticle(ctx, u, a) {
 			out = append(out, a)
 		}
 	}
@@ -1455,15 +1883,30 @@ func (s *Server) getArticle(ctx context.Context, slug string) (Article, error) {
 	}
 	var a Article
 	var html string
-	err := s.db.QueryRowContext(ctx, `SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.content,a.rendered_html,a.visibility,a.updated_at,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category, &a.OwnerID)
-	a.HTML = template.HTML(html)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT a.id,coalesce(a.organization_id,1),coalesce(a.space_id,1),coalesce(s.name,''),coalesce(s.slug,''),
+			a.slug,a.title,coalesce(a.status,'published'),coalesce(a.classification,'internal'),
+			coalesce(a.language,'ru'),coalesce(a.lock_version,1),a.content,a.rendered_html,a.visibility,
+			a.updated_at,coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.owner_id,0)
+		FROM articles a
+		LEFT JOIN spaces s ON s.id=a.space_id
+		LEFT JOIN categories c ON c.id=a.category_id
+		WHERE a.slug=? AND a.deleted_at IS NULL`, slug).Scan(
+		&a.ID, &a.OrganizationID, &a.SpaceID, &a.SpaceName, &a.SpaceSlug,
+		&a.Slug, &a.Title, &a.Status, &a.Classification, &a.Language, &a.LockVersion,
+		&a.Content, &html, &a.Visibility, &a.UpdatedAt, &a.CategoryID, &a.Category, &a.OwnerID,
+	)
 	if a.Content != "" {
 		if res, renderErr := markdownx.Render(a.Content); renderErr == nil {
+			if html == "" {
+				html = res.HTML
+			}
 			a.HasMermaid = res.Mermaid
 			a.Headings = res.Headings
 			a.Tags = res.Tags
 		}
 	}
+	a.HTML = template.HTML(html)
 	return a, err
 }
 
@@ -1490,7 +1933,12 @@ func (s *Server) uniqueSlug(ctx context.Context, tx *sql.Tx, articleID int64, ba
 }
 
 func (s *Server) listCategories(ctx context.Context, u *User) ([]Category, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT c.id,c.name,c.slug,c.description,c.nav_order,c.is_visible,coalesce(a.id,0),coalesce(a.visibility,'') FROM categories c LEFT JOIN articles a ON a.category_id=c.id AND a.deleted_at IS NULL WHERE c.is_visible=1 ORDER BY c.nav_order, lower(c.name)`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id,c.name,c.slug,c.description,c.nav_order,c.is_visible,coalesce(a.id,0),
+			coalesce(a.visibility,''),coalesce(a.status,''),coalesce(a.owner_id,0)
+		FROM categories c
+		LEFT JOIN articles a ON a.category_id=c.id AND a.deleted_at IS NULL
+		WHERE c.is_visible=1 ORDER BY c.nav_order,lower(c.name)`)
 	if err != nil {
 		return nil, err
 	}
@@ -1498,12 +1946,14 @@ func (s *Server) listCategories(ctx context.Context, u *User) ([]Category, error
 		category   Category
 		articleID  int64
 		visibility string
+		status     string
+		ownerID    int64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
 		var visible int
-		if err := rows.Scan(&item.category.ID, &item.category.Name, &item.category.Slug, &item.category.Description, &item.category.NavOrder, &visible, &item.articleID, &item.visibility); err == nil {
+		if err := rows.Scan(&item.category.ID, &item.category.Name, &item.category.Slug, &item.category.Description, &item.category.NavOrder, &visible, &item.articleID, &item.visibility, &item.status, &item.ownerID); err == nil {
 			item.category.Visible = visible == 1
 			candidates = append(candidates, item)
 		}
@@ -1520,7 +1970,7 @@ func (s *Server) listCategories(ctx context.Context, u *User) ([]Category, error
 		if cat.ID == 0 {
 			cat = item.category
 		}
-		if item.articleID > 0 && s.canRead(ctx, u, item.articleID, item.visibility) {
+		if item.articleID > 0 && s.canViewArticle(ctx, u, Article{ID: item.articleID, Visibility: item.visibility, Status: item.status, OwnerID: item.ownerID}) {
 			cat.Count++
 		}
 		categories[item.category.ID] = cat
@@ -1542,14 +1992,17 @@ func (s *Server) listCategories(ctx context.Context, u *User) ([]Category, error
 }
 
 func (s *Server) backlinks(ctx context.Context, u *User, slug string) ([]Article, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,a.updated_at,a.visibility FROM links l JOIN articles a ON a.id=l.from_article_id WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.updated_at DESC`, slug)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id,a.slug,a.title,a.updated_at,a.visibility,coalesce(a.status,'published'),coalesce(a.owner_id,0)
+		FROM links l JOIN articles a ON a.id=l.from_article_id
+		WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.updated_at DESC`, slug)
 	if err != nil {
 		return nil, err
 	}
 	var candidates []Article
 	for rows.Next() {
 		var a Article
-		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.UpdatedAt, &a.Visibility); err == nil {
+		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.UpdatedAt, &a.Visibility, &a.Status, &a.OwnerID); err == nil {
 			candidates = append(candidates, a)
 		}
 	}
@@ -1561,7 +2014,7 @@ func (s *Server) backlinks(ctx context.Context, u *User, slug string) ([]Article
 	}
 	var out []Article
 	for _, a := range candidates {
-		if s.canRead(ctx, u, a.ID, a.Visibility) {
+		if s.canViewArticle(ctx, u, a) {
 			out = append(out, a)
 		}
 	}
@@ -1588,19 +2041,21 @@ func (s *Server) articleWikiLinks(ctx context.Context, u *User, articleID int64,
 	}
 	rows.Close()
 
-	rows, err = s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,a.visibility FROM links l JOIN articles a ON a.id=l.from_article_id WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 24`, slug)
+	rows, err = s.db.QueryContext(ctx, `
+		SELECT a.id,a.slug,a.title,a.visibility,coalesce(a.status,'published'),coalesce(a.owner_id,0)
+		FROM links l JOIN articles a ON a.id=l.from_article_id
+		WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 24`, slug)
 	if err != nil {
 		return out, err
 	}
 	type candidate struct {
-		id         int64
-		item       WikiLinkItem
-		visibility string
+		article Article
+		item    WikiLinkItem
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
-		if err := rows.Scan(&item.id, &item.item.Slug, &item.item.Label, &item.visibility); err == nil {
+		if err := rows.Scan(&item.article.ID, &item.item.Slug, &item.item.Label, &item.article.Visibility, &item.article.Status, &item.article.OwnerID); err == nil {
 			candidates = append(candidates, item)
 		}
 	}
@@ -1611,7 +2066,7 @@ func (s *Server) articleWikiLinks(ctx context.Context, u *User, articleID int64,
 		return out, err
 	}
 	for _, candidate := range candidates {
-		if s.canRead(ctx, u, candidate.id, candidate.visibility) {
+		if s.canViewArticle(ctx, u, candidate.article) {
 			candidate.item.Direction = "back"
 			out = append(out, candidate.item)
 		}
@@ -1653,7 +2108,15 @@ func (s *Server) articleVersions(ctx context.Context, articleID int64) ([]Versio
 }
 
 func (s *Server) listRecentActivity(ctx context.Context, u *User) ([]ActivityItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT ae.entity_id,ae.metadata_json,ae.created_at,coalesce(nullif(actor.display_name,''), nullif(actor.username,''), 'system'),coalesce(a.id,0),coalesce(a.slug,''),coalesce(a.title,''),coalesce(a.visibility,'') FROM audit_events ae LEFT JOIN users actor ON actor.id=ae.actor_id LEFT JOIN articles a ON a.id=CAST(ae.entity_id AS INTEGER) AND ae.entity_type='article' WHERE ae.entity_type='article' ORDER BY ae.created_at DESC LIMIT 40`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ae.entity_id,ae.metadata_json,ae.created_at,
+			coalesce(nullif(actor.display_name,''),nullif(actor.username,''),'system'),
+			coalesce(a.id,0),coalesce(a.slug,''),coalesce(a.title,''),coalesce(a.visibility,''),
+			coalesce(a.status,''),coalesce(a.owner_id,0)
+		FROM audit_events ae
+		LEFT JOIN users actor ON actor.id=ae.actor_id
+		LEFT JOIN articles a ON a.id=CAST(ae.entity_id AS INTEGER) AND ae.entity_type='article'
+		WHERE ae.entity_type='article' ORDER BY ae.created_at DESC LIMIT 40`)
 	if err != nil {
 		return nil, err
 	}
@@ -1666,11 +2129,13 @@ func (s *Server) listRecentActivity(ctx context.Context, u *User) ([]ActivityIte
 		slug       string
 		title      string
 		visibility string
+		status     string
+		ownerID    int64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
-		if err := rows.Scan(&item.entityID, &item.metadata, &item.createdAt, &item.actor, &item.articleID, &item.slug, &item.title, &item.visibility); err == nil {
+		if err := rows.Scan(&item.entityID, &item.metadata, &item.createdAt, &item.actor, &item.articleID, &item.slug, &item.title, &item.visibility, &item.status, &item.ownerID); err == nil {
 			candidates = append(candidates, item)
 		}
 	}
@@ -1682,7 +2147,7 @@ func (s *Server) listRecentActivity(ctx context.Context, u *User) ([]ActivityIte
 	}
 	var out []ActivityItem
 	for _, item := range candidates {
-		if item.articleID > 0 && !s.canRead(ctx, u, item.articleID, item.visibility) {
+		if item.articleID > 0 && !s.canViewArticle(ctx, u, Article{ID: item.articleID, Visibility: item.visibility, Status: item.status, OwnerID: item.ownerID}) {
 			continue
 		}
 		var meta map[string]any
@@ -1726,7 +2191,14 @@ func (s *Server) listAdminUsers(ctx context.Context) ([]AdminUserRow, error) {
 }
 
 func (s *Server) listAdminArticles(ctx context.Context) ([]Article, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.id,a.slug,a.title,a.updated_at,a.visibility,coalesce(a.category_id,0),coalesce(c.name,'') FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 200`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id,a.slug,a.title,coalesce(a.status,'published'),a.updated_at,a.visibility,
+			coalesce(a.category_id,0),coalesce(c.name,''),coalesce(a.space_id,1),coalesce(s.name,''),
+			coalesce(a.classification,'internal'),coalesce(a.language,'ru'),coalesce(a.lock_version,1)
+		FROM articles a
+		LEFT JOIN categories c ON c.id=a.category_id
+		LEFT JOIN spaces s ON s.id=a.space_id
+		WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -1734,7 +2206,7 @@ func (s *Server) listAdminArticles(ctx context.Context) ([]Article, error) {
 	var out []Article
 	for rows.Next() {
 		var item Article
-		if err := rows.Scan(&item.ID, &item.Slug, &item.Title, &item.UpdatedAt, &item.Visibility, &item.CategoryID, &item.Category); err == nil {
+		if err := rows.Scan(&item.ID, &item.Slug, &item.Title, &item.Status, &item.UpdatedAt, &item.Visibility, &item.CategoryID, &item.Category, &item.SpaceID, &item.SpaceName, &item.Classification, &item.Language, &item.LockVersion); err == nil {
 			out = append(out, item)
 		}
 	}
@@ -1858,33 +2330,42 @@ func (s *Server) backupDir() string {
 
 func (s *Server) fileHasPublicArticle(ctx context.Context, fileID int64) bool {
 	var n int
-	_ = s.db.QueryRowContext(ctx, `SELECT count(*) FROM article_files af JOIN articles a ON a.id=af.article_id WHERE af.file_id=? AND a.visibility='public' AND a.deleted_at IS NULL`, fileID).Scan(&n)
+	_ = s.db.QueryRowContext(ctx, `SELECT count(*) FROM article_files af JOIN articles a ON a.id=af.article_id WHERE af.file_id=? AND a.visibility='public' AND coalesce(a.status,'published')='published' AND a.deleted_at IS NULL`, fileID).Scan(&n)
 	return n > 0
 }
 
 func (s *Server) userCanReadFile(ctx context.Context, u *User, fileID int64) bool {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.id,a.visibility FROM article_files af JOIN articles a ON a.id=af.article_id WHERE af.file_id=? AND a.deleted_at IS NULL`, fileID)
+	rows, err := s.db.QueryContext(ctx, `SELECT a.id,a.visibility,coalesce(a.status,'published'),coalesce(a.owner_id,0) FROM article_files af JOIN articles a ON a.id=af.article_id WHERE af.file_id=? AND a.deleted_at IS NULL`, fileID)
 	if err != nil {
 		return false
 	}
 	type candidate struct {
 		articleID  int64
 		visibility string
+		status     string
+		ownerID    int64
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var item candidate
-		if err := rows.Scan(&item.articleID, &item.visibility); err == nil {
+		if err := rows.Scan(&item.articleID, &item.visibility, &item.status, &item.ownerID); err == nil {
 			candidates = append(candidates, item)
 		}
 	}
 	rows.Close()
 	for _, item := range candidates {
-		if s.canRead(ctx, u, item.articleID, item.visibility) {
+		if s.canViewArticle(ctx, u, Article{ID: item.articleID, Visibility: item.visibility, Status: item.status, OwnerID: item.ownerID}) {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *Server) canAccessFile(ctx context.Context, u *User, fileID, uploadedBy int64) bool {
+	if u == nil {
+		return s.fileHasPublicArticle(ctx, fileID)
+	}
+	return u.Role == "admin" || uploadedBy == u.ID || s.userCanReadFile(ctx, u, fileID)
 }
 
 func (s *Server) canRead(ctx context.Context, u *User, articleID int64, visibility string) bool {
@@ -1913,6 +2394,44 @@ func (s *Server) canRead(ctx context.Context, u *User, articleID int64, visibili
 		return false
 	}
 	return n > 0
+}
+
+func (s *Server) canViewArticle(ctx context.Context, u *User, article Article) bool {
+	if !s.canRead(ctx, u, article.ID, article.Visibility) {
+		return false
+	}
+	status := article.Status
+	if status == "" {
+		status = "published"
+	}
+	switch status {
+	case "published", "archived":
+		return true
+	case "draft", "rejected":
+		return u != nil && (u.Role == "admin" || u.ID == article.OwnerID || s.hasExplicitDocumentAccess(ctx, u, article.ID, "write", "admin"))
+	case "in_review", "approved":
+		return u != nil && (u.Role == "admin" || u.Role == "editor" || u.ID == article.OwnerID || s.hasExplicitDocumentAccess(ctx, u, article.ID, "write", "admin"))
+	default:
+		return false
+	}
+}
+
+func (s *Server) hasExplicitDocumentAccess(ctx context.Context, u *User, articleID int64, permissions ...string) bool {
+	if u == nil || articleID == 0 || len(permissions) == 0 {
+		return false
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(permissions)), ",")
+	args := []any{articleID, u.ID}
+	for _, permission := range permissions {
+		args = append(args, permission)
+	}
+	var n int
+	query := `SELECT count(*) FROM acl_users WHERE article_id=? AND user_id=? AND permission IN (` + placeholders + `)`
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&n); err == nil && n > 0 {
+		return true
+	}
+	query = `SELECT count(*) FROM acl_groups ag JOIN group_members gm ON gm.group_id=ag.group_id WHERE ag.article_id=? AND gm.user_id=? AND ag.permission IN (` + placeholders + `)`
+	return s.db.QueryRowContext(ctx, query, args...).Scan(&n) == nil && n > 0
 }
 func (s *Server) canWrite(u *User) bool { return u != nil && (u.Role == "admin" || u.Role == "editor") }
 
@@ -1955,9 +2474,11 @@ type articleSnapshot struct {
 
 var (
 	storageKeyRe = regexp.MustCompile(`^[a-f0-9]{64}(\.[a-z0-9]+)?$`)
-	uploadRefRe  = regexp.MustCompile(`/uploads/([A-Za-z0-9%._~-]+)`)
+	uploadRefRe  = regexp.MustCompile(`/(?:uploads|pdf/viewer)/([A-Za-z0-9%._~-]+)`)
 	extRe        = regexp.MustCompile(`^\.[a-z0-9]{1,12}$`)
 	backupNameRe = regexp.MustCompile(`^docshub-[0-9]{8}T[0-9]{6}Z\.db$`)
+	ftsTokenRe   = regexp.MustCompile(`[\p{L}\p{N}_]+`)
+	pdfPageRe    = regexp.MustCompile(`/Type\s*/Page\b`)
 )
 
 func summarizeArticleChange(previous, current articleSnapshot, hasPrevious bool) string {
@@ -2013,6 +2534,52 @@ func validVisibility(visibility string) string {
 	}
 }
 
+func validClassification(classification string) string {
+	switch classification {
+	case "public", "internal", "confidential", "restricted":
+		return classification
+	default:
+		return "internal"
+	}
+}
+
+func validLanguage(language string) string {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "ru", "en", "de", "fr", "es", "zh":
+		return strings.ToLower(strings.TrimSpace(language))
+	default:
+		return "ru"
+	}
+}
+
+func validSearchStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "draft", "in_review", "approved", "published", "rejected", "archived":
+		return strings.TrimSpace(status)
+	default:
+		return ""
+	}
+}
+
+func statusLabel(status string) string {
+	switch status {
+	case "draft", "":
+		return "Черновик"
+	case "in_review":
+		return "На проверке"
+	case "approved":
+		return "Одобрен"
+	case "published":
+		return "Опубликован"
+	case "rejected":
+		return "Отклонён"
+	case "archived":
+		return "В архиве"
+	default:
+		return status
+	}
+}
+
 func validPermission(permission string) string {
 	switch permission {
 	case "read", "write", "admin":
@@ -2034,6 +2601,100 @@ func nullableID(id int64) any {
 		return nil
 	}
 	return id
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstRune(value string) string {
+	for _, r := range strings.TrimSpace(value) {
+		return strings.ToUpper(string(r))
+	}
+	return "?"
+}
+
+func limitArticles(articles []Article, limit int) []Article {
+	if limit < 0 || len(articles) <= limit {
+		return articles
+	}
+	return articles[:limit]
+}
+
+func ftsPrefixQuery(query string) string {
+	tokens := ftsTokenRe.FindAllString(strings.ToLower(query), -1)
+	if len(tokens) == 0 {
+		return `"__no_match__"*`
+	}
+	parts := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		parts = append(parts, `"`+strings.ReplaceAll(token, `"`, `""`)+`"*`)
+	}
+	return strings.Join(parts, " AND ")
+}
+
+func (s *Server) spaceExists(ctx context.Context, id int64) bool {
+	var n int
+	return s.db.QueryRowContext(ctx, `SELECT count(*) FROM spaces WHERE id=?`, id).Scan(&n) == nil && n == 1
+}
+
+func (s *Server) syncArticleDerivedData(ctx context.Context, tx *sql.Tx, articleID int64, title, slug, content, categoryName, categorySlug string, rendered markdownx.Result) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM article_tags WHERE article_id=?`, articleID); err != nil {
+		return err
+	}
+	tags := articleSearchTags(rendered.Tags, categoryName, categorySlug)
+	for _, tag := range tags {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO tags(name) VALUES(?)`, tag); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO article_tags(article_id,tag_id) SELECT ?,id FROM tags WHERE name=?`, articleID, tag); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM links WHERE from_article_id=?`, articleID); err != nil {
+		return err
+	}
+	for _, link := range rendered.Links {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO links(from_article_id,target_slug,label) VALUES(?,?,?)`, articleID, link.Slug, link.Label); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM article_files WHERE article_id=?`, articleID); err != nil {
+		return err
+	}
+	for _, key := range extractUploadKeys(content) {
+		var fileID int64
+		err := tx.QueryRowContext(ctx, `SELECT id FROM files WHERE storage_key=?`, key).Scan(&fileID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO article_files(article_id,file_id,role) VALUES(?,?,?)`, articleID, fileID, "inline"); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM article_fts WHERE rowid=?`, articleID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO article_fts(rowid,title,slug,content,tags) VALUES(?,?,?,?,?)`, articleID, title, slug, content, strings.Join(tags, " "))
+	return err
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("content-type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]any{"error": code, "message": message})
 }
 
 func articleSearchTags(markdownTags []string, categoryName, categorySlug string) []string {
@@ -2137,19 +2798,24 @@ func validStorageKey(key string) bool {
 }
 
 func detectMediaMIME(filename, header string, data []byte) string {
-	candidates := []string{header, mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))), http.DetectContentType(data)}
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		mediaType, _, err := mime.ParseMediaType(candidate)
+	parse := func(value string) string {
+		mediaType, _, err := mime.ParseMediaType(value)
 		if err != nil {
-			mediaType = candidate
+			mediaType = value
 		}
-		mediaType = strings.ToLower(strings.TrimSpace(mediaType))
-		if mediaKind(mediaType) != "" {
-			return mediaType
-		}
+		return strings.ToLower(strings.TrimSpace(mediaType))
+	}
+	declared := parse(header)
+	byExtension := parse(mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))))
+	sniffed := parse(http.DetectContentType(data))
+	if mediaKind(sniffed) != "" {
+		return sniffed
+	}
+	// Some audio/video formats are not recognized from a short prefix. In that
+	// case require both the declared MIME and filename extension to agree on the
+	// same supported kind; a caller-controlled header alone is not sufficient.
+	if declaredKind, extensionKind := mediaKind(declared), mediaKind(byExtension); declaredKind != "" && declaredKind == extensionKind {
+		return declared
 	}
 	return ""
 }
@@ -2159,6 +2825,8 @@ func mediaKind(mimeType string) string {
 		return ""
 	}
 	switch {
+	case mimeType == "application/pdf":
+		return "pdf"
 	case strings.HasPrefix(mimeType, "image/"):
 		return "image"
 	case strings.HasPrefix(mimeType, "audio/"):
@@ -2172,7 +2840,8 @@ func mediaKind(mimeType string) string {
 
 func safeMediaExt(filename, mimeType string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
-	if extRe.MatchString(ext) {
+	extMIME, _, _ := mime.ParseMediaType(mime.TypeByExtension(ext))
+	if extRe.MatchString(ext) && mediaKind(strings.ToLower(extMIME)) == mediaKind(mimeType) {
 		return ext
 	}
 	exts, _ := mime.ExtensionsByType(mimeType)
@@ -2191,9 +2860,19 @@ func mediaSnippet(kind, fileURL, filename string) string {
 		return fmt.Sprintf(`<audio controls="controls" preload="metadata" src="%s" title="%s"></audio>`, template.HTMLEscapeString(fileURL), template.HTMLEscapeString(name))
 	case "video":
 		return fmt.Sprintf(`<video controls="controls" preload="metadata" src="%s" title="%s"></video>`, template.HTMLEscapeString(fileURL), template.HTMLEscapeString(name))
+	case "pdf":
+		return fmt.Sprintf("[📄 %s](%s)", escapeMarkdownLabel(name), fileURL)
 	default:
 		return fmt.Sprintf("[%s](%s)", escapeMarkdownLabel(name), fileURL)
 	}
+}
+
+func pdfPageCount(data []byte) int {
+	count := len(pdfPageRe.FindAll(data, -1))
+	if count < 1 {
+		return 1
+	}
+	return count
 }
 
 func cleanMediaName(filename string) string {
@@ -2211,10 +2890,10 @@ func escapeMarkdownLabel(s string) string {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:;")
 		if s.cfg.TLS.Enabled || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
@@ -2321,8 +3000,8 @@ func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 type userKey struct{}
 type csrfKey struct{}
 
-func userFrom(ctx context.Context) *User       { u, _ := ctx.Value(userKey{}).(*User); return u }
-func csrfFrom(ctx context.Context) string  { t, _ := ctx.Value(csrfKey{}).(string); return t }
+func userFrom(ctx context.Context) *User  { u, _ := ctx.Value(userKey{}).(*User); return u }
+func csrfFrom(ctx context.Context) string { t, _ := ctx.Value(csrfKey{}).(string); return t }
 func slugParam(r *http.Request) string {
 	raw := chi.URLParam(r, "slug")
 	if decoded, err := url.PathUnescape(raw); err == nil {
@@ -2358,7 +3037,7 @@ func (s *Server) loginRateLimiter() func(http.Handler) http.Handler {
 		mu      sync.Mutex
 		buckets = map[string]*bucket{}
 	)
-	rate := 5.0 / 60.0  // 5 tokens per minute
+	rate := 5.0 / 60.0 // 5 tokens per minute
 	burst := 3.0
 
 	go func() {

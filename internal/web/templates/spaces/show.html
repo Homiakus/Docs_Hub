@@ -1,30 +1,13 @@
 {{define "content"}}
-<div class="space-show">
+<div class="space-show page-stack">
   {{template "components/breadcrumb" .}}
-
-  <div class="pagehead">
-    <div>
-      <span class="eyebrow">Пространство</span>
-      <h1 class="text-page-title">{{.CurrentSpace.Name}}</h1>
-      <p class="text-secondary">{{.CurrentSpace.Description}}</p>
-    </div>
-    <a class="btn btn-primary" href="/new">Создать документ</a>
-  </div>
-
-  <div class="list" style="margin-top: var(--space-6);">
-    {{range .Articles}}
-    <article class="listitem">
-      <h2><a href="{{articlePath .Slug}}">{{.Title}}</a></h2>
-      <p>
-        <span>Обновлено: {{.UpdatedAt}}</span>
-        <span class="badge badge-published">{{.Visibility}}</span>
-      </p>
-    </article>
-    {{else}}
-    <div style="padding: var(--space-8); text-align: center; color: var(--text-tertiary);">
-      <p>В этом пространстве пока нет документов.</p>
-    </div>
-    {{end}}
-  </div>
+  <header class="pagehead space-hero">
+    <div class="space-title"><span class="space-card-icon" aria-hidden="true">▦</span><div><span class="eyebrow">Пространство · {{.CurrentSpace.Count}} документов</span><h1>{{.CurrentSpace.Name}}</h1><p>{{.CurrentSpace.Description}}</p></div></div>
+    {{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new?space={{.CurrentSpace.ID}}">＋ Создать здесь</a>{{end}}
+  </header>
+  <section class="content-section">
+    <div class="section-heading"><div><span class="eyebrow">Содержимое</span><h2>Документы пространства</h2></div><a href="/search?space={{.CurrentSpace.Slug}}">Фильтровать →</a></div>
+    <div class="document-list">{{range .Articles}}{{template "components/document_card" .}}{{else}}<div class="empty-state"><span aria-hidden="true">◇</span><h3>Пока пусто</h3><p>Добавьте первый документ в это пространство.</p></div>{{end}}</div>
+  </section>
 </div>
 {{end}}

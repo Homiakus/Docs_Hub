@@ -1,14 +1,32 @@
 {{define "content"}}
-<div class="graph-page">
-  <div class="pagehead">
-    <div>
-      <span class="eyebrow">Интерактивный граф</span>
-      <h1 class="text-page-title">Граф связей базы знаний</h1>
-      <p class="text-secondary">Визуализация междокументных гиперссылок и структурных пространств.</p>
-    </div>
-  </div>
+<div class="graph-page page-stack">
+  <header class="pagehead">
+    <div><span class="eyebrow">Карта знаний</span><h1>Граф связей</h1><p>Исследуйте переходы между документами, пространства и изолированные материалы.</p></div>
+    <a class="btn btn-secondary" href="/search">Открыть список</a>
+  </header>
 
-  <div id="graph" class="graph" style="margin-top: var(--space-4);"></div>
+  <section class="graph-shell" aria-labelledby="graphTitle">
+    <div class="graph-toolbar">
+      <label class="graph-search"><span aria-hidden="true">⌕</span><span class="sr-only">Найти узел графа</span><input id="graphSearch" type="search" placeholder="Найти документ"></label>
+      <label><span class="sr-only">Фильтр по статусу</span><select id="graphStatus" class="form-control">
+        <option value="">Все статусы</option><option value="published">Опубликовано</option><option value="draft">Черновики</option><option value="in_review">На проверке</option><option value="approved">Одобрено</option><option value="archived">Архив</option>
+      </select></label>
+      <div class="graph-toolbar-actions" role="group" aria-label="Масштаб графа">
+        <button type="button" id="graphZoomOut" aria-label="Уменьшить масштаб">−</button>
+        <button type="button" id="graphFit" aria-label="Показать граф целиком">Вписать</button>
+        <button type="button" id="graphZoomIn" aria-label="Увеличить масштаб">＋</button>
+      </div>
+      <p class="graph-stats" id="graphStats" aria-live="polite"></p>
+    </div>
+    <h2 class="sr-only" id="graphTitle">Интерактивная схема документов</h2>
+    <div id="graph" class="graph" tabindex="0" aria-describedby="graphHelp">
+      <div class="graph-loading"><span aria-hidden="true"></span><p>Строим карту знаний…</p></div>
+    </div>
+    <p class="graph-help" id="graphHelp">Перетаскивайте карту мышью, используйте колесо для масштаба. Enter открывает выбранный документ.</p>
+    <div class="graph-legend" aria-label="Легенда"><span><i class="published"></i>Опубликован</span><span><i class="draft"></i>Черновик</span><span><i class="in-review"></i>На проверке</span><span><i class="approved"></i>Одобрен</span><span><i class="archived"></i>Архив</span></div>
+  </section>
+
+  <details class="graph-list-panel"><summary>Доступный список узлов</summary><div id="graphAccessibleList" class="graph-accessible-list"></div></details>
 </div>
 <script>window.DOCSHUB_GRAPH_ENDPOINT='/api/graph';</script>
 <script defer src="/static/js/graph/graph-explorer.js"></script>

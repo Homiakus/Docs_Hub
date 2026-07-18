@@ -3,7 +3,9 @@ APP=docshub
 .PHONY: run test test-cov build fmt lint clean
 
 run:
-	ADMIN_PASSWORD=dev-password-123 SESSION_SECRET=dev-secret-32-bytes-long-key go run ./cmd/docshub
+	@test -n "$$ADMIN_PASSWORD" || (printf '%s\n' 'ADMIN_PASSWORD is required' >&2; exit 1)
+	@test -n "$$SESSION_SECRET" || (printf '%s\n' 'SESSION_SECRET is required' >&2; exit 1)
+	go run ./cmd/docshub
 
 test:
 	go test ./... -count=1

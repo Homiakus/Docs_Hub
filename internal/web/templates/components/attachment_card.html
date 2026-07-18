@@ -1,12 +1,7 @@
 {{define "components/attachment_card"}}
-<div class="attachment-card" style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
-  <div style="display: flex; align-items: center; gap: var(--space-3);">
-    <span style="font-size: 1.25rem;">📄</span>
-    <div>
-      <h4 style="font-size: 0.875rem; font-weight: 600; margin: 0; color: var(--text-primary);">{{.OriginalName}}</h4>
-      <p style="font-size: 0.75rem; color: var(--text-tertiary); margin: 0;">{{.SizeBytes}} байт · {{.MIME}}</p>
-    </div>
-  </div>
+<article class="attachment-card">
+  <span class="attachment-icon" aria-hidden="true">↧</span>
+  <div><h4>{{.OriginalName}}</h4><p>{{.SizeBytes}} байт · {{.MIME}}</p></div>
   <a href="/uploads/{{.StorageKey}}" download class="btn btn-secondary btn-sm">Скачать</a>
-</div>
+</article>
 {{end}}

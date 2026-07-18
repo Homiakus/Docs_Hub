@@ -1,46 +1,69 @@
 # Docs_Hub
 
-**Docs_Hub** — корпоративная база знаний и платформенное wiki-решение на Go для управления знаниями, вложениями, диаграммами и документами.
+Docs_Hub — корпоративная база знаний на Go: пространства, полнотекстовый поиск, управляемый workflow документов, версии, вложения, PDF и граф связей.
 
-Версия: **v0.3.0-alpha.1**
+Текущая версия: **v0.4.0-alpha.1**
 
-## Документация проекта
+## Что входит
 
-- [Docs_Hub_Enterprise_Roadmap.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/Docs_Hub_Enterprise_Roadmap.md) — Дорожная карта превращения Docs_Hub в коммерческую Enterprise платформу
-- [docs/ARCHITECTURE.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/docs/ARCHITECTURE.md) — Описание модульной архитектуры и принципов домена
-- [docs/ROADMAP.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/docs/ROADMAP.md) — Краткое резюме релизных вех
-- [CONTRIBUTING.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/CONTRIBUTING.md) — Правила участия в разработке
-- [SECURITY.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/SECURITY.md) — Политика раскрытия уязвимостей
-- [CHANGELOG.md](file:///d:/Programms/202-Programming-Projects/Docs_Hub/CHANGELOG.md) — Журнал релиза и изменений
+- адаптивный интерфейс для desktop, tablet и mobile;
+- Markdown-редактор с live preview, шаблонами, таблицами и Mermaid;
+- надёжное автосохранение с optimistic locking и локальным восстановлением;
+- жизненный цикл `draft → in_review → approved → published → archived`;
+- ACL-aware поиск, пространства, категории и граф знаний;
+- загрузка изображений, аудио, видео и PDF со встроенным viewer;
+- админ-панель пользователей, ролей, контента, ACL, импорта и бэкапов;
+- CSRF, CSP, защищённые сессии и аудит действий.
 
 ## Быстрый старт
 
 ```bash
 cp .env.example .env
-# Заполните ADMIN_PASSWORD и SESSION_SECRET
+# Задайте ADMIN_PASSWORD и SESSION_SECRET в .env
 
-# Запуск локально
-export $(grep -v '^#' .env | xargs)
+set -a
+. ./.env
+set +a
 go run ./cmd/docshub
+```
 
-# Запуск в Docker
+Откройте `http://localhost:8080`. Для запуска в контейнере:
+
+```bash
 docker compose up -d --build
 ```
 
-Откройте в браузере: `http://localhost:8080`
+Демонстрационные пространства и документы можно добавить командой `go run ./cmd/docshub seed-demo`, предварительно задав `DEMO_PASSWORD` длиной не менее восьми символов.
 
-## Проверка состояния здоровья (Healthcheck)
-
-Исполняемый файл предоставляет встроенную команду для контейнерного и внешнего контроля здоровья:
+Проверка здоровья:
 
 ```bash
-docshub healthcheck --url=http://127.0.0.1:8080/healthz
+go run ./cmd/docshub healthcheck --url=http://127.0.0.1:8080/healthz
 ```
 
-## Тестирование и Сборка
+## Проверки
 
 ```bash
-go test -v -race ./...
 go vet ./...
-go build -o bin/docshub ./cmd/docshub
+go test -race ./...
+go build ./cmd/docshub
+
+cd tests/e2e
+npm ci
+npx playwright install chromium
+export E2E_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+export E2E_SESSION_SECRET="$(openssl rand -hex 32)"
+npm test
 ```
+
+CI дополнительно собирает Docker-образ и запускает Playwright на трёх размерах экрана с accessibility-проверками.
+
+## Документация
+
+- [Архитектура](docs/ARCHITECTURE.md)
+- [UI/UX audit и результаты redesign](docs/UI_UX_AUDIT_2026-07-18.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Enterprise roadmap](Docs_Hub_Enterprise_Roadmap.md)
+- [Вклад в проект](CONTRIBUTING.md)
+- [Политика безопасности](SECURITY.md)
+- [История изменений](CHANGELOG.md)

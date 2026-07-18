@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
+	"os"
 
+	"github.com/homiakus/docshub-next/internal/auth"
 	"github.com/homiakus/docshub-next/internal/db"
 )
 
@@ -31,14 +33,25 @@ func SeedDemo(ctx context.Context, database *db.DB) error {
 	}
 
 	userIds := make(map[string]int64)
+	demoPassword := os.Getenv("DEMO_PASSWORD")
+	if demoPassword == "" {
+		return fmt.Errorf("DEMO_PASSWORD is required for seed-demo")
+	}
+	if len(demoPassword) < 8 {
+		return fmt.Errorf("DEMO_PASSWORD must be at least 8 characters")
+	}
+	passwordHash, err := auth.HashPassword(demoPassword)
+	if err != nil {
+		return fmt.Errorf("hash demo password: %w", err)
+	}
 	for _, u := range users {
 		var existingID int64
 		err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username=?`, u.username).Scan(&existingID)
 		if err == sql.ErrNoRows {
 			res, err := tx.ExecContext(ctx,
 				`INSERT INTO users(username, display_name, email, password_hash, role, is_active, created_at, updated_at)
-				 VALUES(?, ?, ?, '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', ?, 1, datetime('now'), datetime('now'))`,
-				u.username, u.name, u.email, u.role)
+				 VALUES(?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+				u.username, u.name, u.email, passwordHash, u.role)
 			if err != nil {
 				return fmt.Errorf("seed user %s: %w", u.username, err)
 			}
@@ -196,7 +209,7 @@ graph TD
 				// Include table in some docs
 				content += "\n### Таблица спецификаций\n\n| Параметр | Значение |\n|---|---|\n| Требование | WCAG 2.2 AA |\n| Время отклика | < 2.5s LCP |\n"
 			}
-				content += "\n### Диаграмма процесса\n\n" + bt + "mermaid\ngraph LR\n    A[Черновик] --> B[Проверка]\n    B --> C[Публикация]\n" + bt + "\n"
+			content += "\n### Диаграмма процесса\n\n" + bt + "mermaid\ngraph LR\n    A[Черновик] --> B[Проверка]\n    B --> C[Публикация]\n" + bt + "\n"
 
 			res, err := tx.ExecContext(ctx,
 				`INSERT INTO articles(organization_id, space_id, stable_key, slug, title, status, classification, language, content, rendered_html, owner_id, visibility, created_at, updated_at)
@@ -207,8 +220,8 @@ graph TD
 				// Add initial revision
 				_, _ = tx.ExecContext(ctx,
 					`INSERT INTO document_revisions(document_id, revision_no, source_format, content, rendered_html, change_summary, created_by, created_at)
-					 VALUES(?, 1, 'markdown', ?, '', 'Начальное создание документа', owner, datetime('now', '-1 day'))`,
-					docID, content)
+					 VALUES(?, 1, 'markdown', ?, '', 'Начальное создание документа', ?, datetime('now', '-1 day'))`,
+					docID, content, owner)
 			}
 		}
 	}

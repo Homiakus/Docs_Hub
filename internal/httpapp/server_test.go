@@ -13,6 +13,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,11 +109,13 @@ func saveArticle(t *testing.T, client *http.Client, baseURL string, form url.Val
 }
 
 type uploadedMedia struct {
-	Kind     string `json:"kind"`
-	URL      string `json:"url"`
-	Filename string `json:"filename"`
-	MIME     string `json:"mime"`
-	Markdown string `json:"markdown"`
+	Kind      string `json:"kind"`
+	URL       string `json:"url"`
+	ViewerURL string `json:"viewer_url"`
+	Filename  string `json:"filename"`
+	MIME      string `json:"mime"`
+	PageCount int    `json:"page_count"`
+	Markdown  string `json:"markdown"`
 }
 
 func uploadTestMedia(t *testing.T, client *http.Client, baseURL, filename, contentType, csrf string) uploadedMedia {
@@ -344,5 +347,195 @@ func TestAdminCanCreateCategoryAndEditorShowsSelector(t *testing.T) {
 	}
 	if !strings.Contains(html, `name="category_id"`) || !strings.Contains(html, "Процессы") {
 		t.Fatalf("editor should include category selector: %s", html)
+	}
+}
+
+type draftAPIResponse struct {
+	ID                int64  `json:"id"`
+	Slug              string `json:"slug"`
+	LockVersion       int    `json:"lock_version"`
+	Error             string `json:"error"`
+	ServerLockVersion int    `json:"server_lock_version"`
+}
+
+func putDraft(t *testing.T, client *http.Client, baseURL, csrf string, payload map[string]any) (int, draftAPIResponse) {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPut, baseURL+"/api/v1/documents/draft", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var decoded draftAPIResponse
+	if err := json.NewDecoder(res.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode draft response: %v", err)
+	}
+	return res.StatusCode, decoded
+}
+
+func TestAutosaveAdoptsDraftIDAndRejectsStaleWrites(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	csrf := loginTestUser(t, client, ts.URL, database)
+
+	status, created := putDraft(t, client, ts.URL, csrf, map[string]any{
+		"id": 0, "title": "Автосохранение", "content": "Первая версия", "lock_version": 1,
+		"space_id": 1, "category_id": 0, "visibility": "authenticated", "classification": "internal", "language": "ru",
+	})
+	if status != http.StatusOK || created.ID == 0 || created.Slug == "" || created.LockVersion != 1 {
+		t.Fatalf("create autosave = status %d, response %+v", status, created)
+	}
+
+	status, updated := putDraft(t, client, ts.URL, csrf, map[string]any{
+		"id": created.ID, "title": "Автосохранение", "content": "Вторая версия", "lock_version": created.LockVersion,
+		"space_id": 1, "category_id": 0, "visibility": "authenticated", "classification": "internal", "language": "ru",
+	})
+	if status != http.StatusOK || updated.ID != created.ID || updated.LockVersion != 2 {
+		t.Fatalf("update autosave = status %d, response %+v", status, updated)
+	}
+
+	status, conflict := putDraft(t, client, ts.URL, csrf, map[string]any{
+		"id": created.ID, "title": "Устаревшая вкладка", "content": "Не должна победить", "lock_version": 1,
+		"space_id": 1, "visibility": "authenticated", "classification": "internal", "language": "ru",
+	})
+	if status != http.StatusConflict || conflict.Error != "edit_conflict" || conflict.ServerLockVersion != 2 {
+		t.Fatalf("stale autosave = status %d, response %+v", status, conflict)
+	}
+	var count, lockVersion int
+	var content string
+	if err := database.QueryRowContext(context.Background(), `SELECT count(*),content,lock_version FROM articles WHERE id=?`, created.ID).Scan(&count, &content, &lockVersion); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || content != "Вторая версия" || lockVersion != 2 {
+		t.Fatalf("stored draft count=%d content=%q lock=%d", count, content, lockVersion)
+	}
+}
+
+func TestSearchAppliesSpaceAndStatusFilters(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	csrf := loginTestUser(t, client, ts.URL, database)
+	_, err := database.ExecContext(context.Background(), `INSERT INTO spaces(organization_id,name,slug,description,default_visibility,created_at,updated_at) VALUES(1,'Second Space','second-space','Filtered workspace','space_members',datetime('now'),datetime('now'))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secondSpaceID int64
+	if err := database.QueryRowContext(context.Background(), `SELECT id FROM spaces WHERE slug='second-space'`).Scan(&secondSpaceID); err != nil {
+		t.Fatal(err)
+	}
+
+	general := saveArticle(t, client, ts.URL, url.Values{"title": {"General Published"}, "content": {"alpha"}, "visibility": {"authenticated"}, "space_id": {"1"}}, csrf)
+	second := saveArticle(t, client, ts.URL, url.Values{"title": {"Second Published"}, "content": {"beta"}, "visibility": {"authenticated"}, "space_id": {strconv.FormatInt(secondSpaceID, 10)}}, csrf)
+	saveArticle(t, client, ts.URL, url.Values{"title": {"Second Draft"}, "content": {"gamma"}, "visibility": {"authenticated"}, "space_id": {strconv.FormatInt(secondSpaceID, 10)}}, csrf)
+	for _, location := range []string{general, second} {
+		slug, _ := url.PathUnescape(strings.TrimPrefix(location, "/a/"))
+		if _, err := database.ExecContext(context.Background(), `UPDATE articles SET status='published' WHERE slug=?`, slug); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := client.Get(ts.URL + "/search?space=second-space&status=published")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	html := string(body)
+	if res.StatusCode != http.StatusOK || !strings.Contains(html, "Second Published") {
+		t.Fatalf("filtered search did not return expected document: status=%d body=%s", res.StatusCode, html)
+	}
+	for _, forbidden := range []string{"General Published", "Second Draft"} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("filtered search unexpectedly contains %q", forbidden)
+		}
+	}
+	if !strings.Contains(html, `value="second-space" selected`) || !strings.Contains(html, `value="published" selected`) {
+		t.Fatalf("search controls did not preserve selected filters: %s", html)
+	}
+}
+
+func TestWorkflowTransitionsAreAtomic(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	csrf := loginTestUser(t, client, ts.URL, database)
+	location := saveArticle(t, client, ts.URL, url.Values{"title": {"Workflow Document"}, "content": {"workflow"}, "visibility": {"authenticated"}}, csrf)
+	slug, _ := url.PathUnescape(strings.TrimPrefix(location, "/a/"))
+	var articleID int64
+	var lockVersion int
+	if err := database.QueryRowContext(context.Background(), `SELECT id,lock_version FROM articles WHERE slug=?`, slug).Scan(&articleID, &lockVersion); err != nil {
+		t.Fatal(err)
+	}
+
+	transition := func(action, expectedStatus string, expectedLock int) {
+		t.Helper()
+		res, err := client.PostForm(ts.URL+"/documents/"+strconv.FormatInt(articleID, 10)+"/workflow", url.Values{
+			"csrf_token": {csrf}, "action": {action}, "lock_version": {strconv.Itoa(expectedLock - 1)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("transition %s status=%d", action, res.StatusCode)
+		}
+		var status string
+		var gotLock int
+		if err := database.QueryRowContext(context.Background(), `SELECT status,lock_version FROM articles WHERE id=?`, articleID).Scan(&status, &gotLock); err != nil {
+			t.Fatal(err)
+		}
+		if status != expectedStatus || gotLock != expectedLock {
+			t.Fatalf("transition %s stored status=%s lock=%d", action, status, gotLock)
+		}
+	}
+	transition("submit_review", "in_review", lockVersion+1)
+	transition("approve", "approved", lockVersion+2)
+	transition("publish", "published", lockVersion+3)
+
+	res, err := client.PostForm(ts.URL+"/documents/"+strconv.FormatInt(articleID, 10)+"/workflow", url.Values{
+		"csrf_token": {csrf}, "action": {"archive"}, "lock_version": {strconv.Itoa(lockVersion + 1)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusConflict {
+		t.Fatalf("stale workflow transition status=%d, want %d", res.StatusCode, http.StatusConflict)
+	}
+}
+
+func TestPDFUploadLinksToFunctionalViewer(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	csrf := loginTestUser(t, client, ts.URL, database)
+	media := uploadTestMedia(t, client, ts.URL, "handbook.pdf", "application/pdf", csrf)
+	if media.Kind != "pdf" || media.ViewerURL == "" || media.PageCount < 1 || !strings.Contains(media.Markdown, media.ViewerURL) {
+		t.Fatalf("unexpected PDF upload response: %+v", media)
+	}
+	saveArticle(t, client, ts.URL, url.Values{"title": {"PDF Handbook"}, "content": {media.Markdown}, "visibility": {"authenticated"}}, csrf)
+	res, err := client.Get(ts.URL + media.ViewerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "handbook.pdf") || !strings.Contains(string(body), media.URL+"#page=1") {
+		t.Fatalf("PDF viewer status=%d body=%s", res.StatusCode, body)
+	}
+	res, err = client.Get(ts.URL + media.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("PDF download status=%d", res.StatusCode)
 	}
 }

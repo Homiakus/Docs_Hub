@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:desktop": "playwright test --project='Desktop 1440'"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",

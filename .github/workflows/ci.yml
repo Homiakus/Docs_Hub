@@ -32,3 +32,44 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t docshub-next .
+
+  ui:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - name: Install UI test dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Generate ephemeral UI test credentials
+        run: |
+          printf 'E2E_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 16)" >> "$GITHUB_ENV"
+          printf 'E2E_SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Run UI, responsive and accessibility tests
+        working-directory: tests/e2e
+        run: npm test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright-report
+          retention-days: 7

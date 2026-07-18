@@ -1,43 +1,52 @@
 {{define "base"}}
 <!doctype html>
-<html lang="ru" data-theme="dark">
+<html lang="ru" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · {{.SiteName}}</title>
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f7fb">
   <meta name="csrf-token" content="{{.CSRFToken}}">
+  <title>{{.Title}} · {{.SiteName}}</title>
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem('docs-hub-theme')||'light'}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
-  <script defer src="/static/js/navigation/command-palette.js"></script>
+  {{if .User}}<script defer src="/static/js/navigation/command-palette.js"></script>{{end}}
   <script defer src="/static/js/reader/toc.js"></script>
-  {{if .Article.HasMermaid}}
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.mermaid){mermaid.initialize({startOnLoad:true,theme:'dark',securityLevel:'strict'})}})</script>
+  {{if or .Article.HasMermaid .IsEditor}}
+  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.mermaid){mermaid.initialize({startOnLoad:true,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral',securityLevel:'strict'})}})</script>
   {{end}}
 </head>
 <body class="{{if not .User}}auth-page{{end}}">
-<a href="#main-content" class="skip-link">Перейти к основному содержимому</a>
-{{if .User}}
-<div class="app-shell">
-  {{template "components/sidebar" .}}
-  <section class="app-main">
-    <header class="topbar">
-      <button class="icon-button mobile-nav-toggle" type="button" aria-label="Открыть меню" aria-controls="mobile-navigation" aria-expanded="false">
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-      </button>
-      <form class="search" action="/search" method="get"><input name="q" value="{{.Query}}" placeholder="Поиск по статьям, тегам, slug (Ctrl+K)" accesskey="s"></form>
-      <div class="top-actions">
-        {{if .User}}<span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span><a class="btn btn-primary" href="/new">Создать</a>{{else}}<a class="btn btn-primary" href="/login">Войти</a>{{end}}
-      </div>
-    </header>
-    <main class="layout" id="main-content">{{template "content" .}}</main>
-  </section>
-</div>
-{{else}}
-<main class="auth-shell">{{template "content" .}}</main>
-{{end}}
+  <a href="#main-content" class="skip-link">Перейти к содержимому</a>
+  {{if .User}}
+  <div class="app-shell">
+    {{template "components/sidebar" .}}
+    <div class="app-main">
+      <header class="topbar">
+        <button class="icon-button mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="mobile-navigation" aria-expanded="false">
+          <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+        </button>
+        <form class="global-search" action="/search" method="get" role="search">
+          <label class="sr-only" for="globalSearch">Поиск по базе знаний</label>
+          <span class="global-search-icon" aria-hidden="true">⌕</span>
+          <input id="globalSearch" type="search" name="q" value="{{.Query}}" placeholder="Поиск по документам и тегам">
+          <button class="shortcut-hint" id="commandPaletteButton" type="button" aria-label="Открыть быстрый поиск"><kbd>Ctrl</kbd><kbd>K</kbd></button>
+        </form>
+        <div class="top-actions">
+          <span class="presence-dot" aria-hidden="true"></span>
+          <span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span>
+          {{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new"><span aria-hidden="true">＋</span> Создать</a>{{end}}
+        </div>
+      </header>
+      <main class="layout" id="main-content" tabindex="-1">{{template "content" .}}</main>
+    </div>
+  </div>
+  <div class="mobile-backdrop" aria-hidden="true"></div>
+  {{else}}
+  <main class="auth-shell" id="main-content">{{template "content" .}}</main>
+  {{end}}
 </body>
 </html>
 {{end}}

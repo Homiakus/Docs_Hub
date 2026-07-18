@@ -20,7 +20,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/httpapp"
 )
 
-const Version = "v0.3.0-alpha.1"
+const Version = "v0.4.0-alpha.1"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -159,4 +159,3 @@ func runSeedDemo() {
 	fmt.Println("Demo seeding completed successfully!")
 	os.Exit(0)
 }
-

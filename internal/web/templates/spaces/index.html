@@ -1,25 +1,14 @@
 {{define "content"}}
-<div class="spaces-index">
-  <div class="pagehead">
-    <div>
-      <span class="eyebrow">Структура</span>
-      <h1 class="text-page-title">Пространства знаний</h1>
-      <p class="text-secondary">Каталог разделов и тематических пространств организации.</p>
-    </div>
-  </div>
-
-  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4); margin-top: var(--space-6);">
+<div class="spaces-page page-stack">
+  <header class="pagehead"><div><span class="eyebrow">Структура базы</span><h1>Пространства знаний</h1><p>Тематические области с собственным контекстом, документами и ответственными.</p></div>{{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new">＋ Новый документ</a>{{end}}</header>
+  <section class="space-grid" aria-label="Список пространств">
     {{range .Spaces}}
-    <a href="/spaces/{{.Slug}}" style="display: grid; gap: var(--space-2); padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); text-decoration: none; color: inherit; transition: border-color var(--transition-fast), box-shadow var(--transition-fast);">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <h2 style="font-size: 1.125rem; font-weight: 600; color: var(--text-primary); margin: 0;">{{.Name}}</h2>
-        <span class="badge badge-published">{{.Count}} док.</span>
-      </div>
-      <p style="font-size: 0.875rem; color: var(--text-secondary); margin: 0; line-height: 1.4;">{{.Description}}</p>
+    <a class="space-card" href="/spaces/{{.Slug}}">
+      <span class="space-card-icon" aria-hidden="true">▦</span>
+      <div><h2>{{.Name}}</h2><p>{{if .Description}}{{.Description}}{{else}}Документы рабочего пространства{{end}}</p></div>
+      <footer><span>{{.Count}} документов</span><b aria-hidden="true">→</b></footer>
     </a>
-    {{else}}
-    <p class="u-muted">Пространства не найдены.</p>
-    {{end}}
-  </div>
+    {{else}}<div class="empty-state"><span aria-hidden="true">▦</span><h3>Пространств пока нет</h3><p>Создайте структуру базы в панели управления.</p></div>{{end}}
+  </section>
 </div>
 {{end}}

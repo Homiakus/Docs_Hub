@@ -10,8 +10,17 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       const action = btn.getAttribute('data-editor-action');
+      if (action === 'table') return;
       applyFormatting(editorArea, action);
     });
+  });
+
+  editorArea.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const action = event.key.toLowerCase() === 'b' ? 'bold' : event.key.toLowerCase() === 'i' ? 'italic' : '';
+    if (!action) return;
+    event.preventDefault();
+    applyFormatting(editorArea, action);
   });
 
   function applyFormatting(textarea, action) {
@@ -46,9 +55,6 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
       case 'quote':
         replacement = `\n> ${selection || 'Цитата или примечание'}\n`;
-        break;
-      case 'table':
-        replacement = `\n| Колонка 1 | Колонка 2 |\n|---|---|\n| Ячейка 1 | Ячейка 2 |\n`;
         break;
       case 'mermaid':
         replacement = `\n${bt}mermaid\ngraph TD\n    A[Начало] --> B[Процесс]\n${bt}\n`;

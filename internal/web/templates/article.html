@@ -1,81 +1,81 @@
 {{define "content"}}
-<article class="doc-layout">
-  <section class="doc-main">
-    {{template "components/breadcrumb" .}}
+<div class="reader-page">
+  {{template "components/breadcrumb" .}}
+  {{if .Notice}}<div class="notice" role="status"><span aria-hidden="true">✓</span>{{.Notice}}</div>{{end}}
 
-    <div class="pagehead" style="align-items: flex-start;">
-      <div>
-        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); flex-wrap: wrap;">
-          <span class="badge badge-{{.Article.Status}}">{{.Article.Status}}</span>
-          <span class="badge badge-published" style="background: var(--surface-secondary); color: var(--text-secondary); border-color: var(--border-subtle);">{{.Article.Visibility}}</span>
-          {{if .Article.Tags}}
-            {{range .Article.Tags}}<span class="tag-chip">#{{.}}</span>{{end}}
-          {{end}}
-        </div>
-        <h1 class="text-page-title" style="margin-bottom: var(--space-2);">{{.Article.Title}}</h1>
-        <p class="text-meta">
-          Обновлено: {{.Article.UpdatedAt}} · Slug: <code>{{.Article.Slug}}</code>
-        </p>
+  <header class="reader-head">
+    <div class="reader-title">
+      <div class="metadata-row">
+        <span class="badge badge-{{.Article.Status}}">{{statusLabel .Article.Status}}</span>
+        <span class="classification-chip">{{.Article.Classification}}</span>
+        {{if .Article.Category}}<span class="category-chip"># {{.Article.Category}}</span>{{end}}
       </div>
-
-      <div style="display: flex; gap: var(--space-2);">
-        {{if .CanWrite}}
-        <a class="btn btn-primary" href="{{editPath .Article.Slug}}">Редактировать</a>
-        {{end}}
-      </div>
+      <h1>{{.Article.Title}}</h1>
+      <p>Обновлено {{.Article.UpdatedAt}}{{if .Article.SpaceName}} · {{.Article.SpaceName}}{{end}} · <span lang="en">{{.Article.Language}}</span></p>
     </div>
+    <div class="reader-actions">
+      {{if .CanWrite}}<a class="btn btn-secondary" href="{{editPath .Article.Slug}}"><span aria-hidden="true">✎</span> Редактировать</a>{{end}}
+      {{range .WorkflowActions}}
+      <form method="post" action="/documents/{{$.Article.ID}}/workflow">
+        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+        <input type="hidden" name="lock_version" value="{{$.Article.LockVersion}}">
+        <input type="hidden" name="action" value="{{.Action}}">
+        <button class="btn btn-{{.Style}}" type="submit">{{.Label}}</button>
+      </form>
+      {{end}}
+    </div>
+  </header>
 
-    {{if .Article.Headings}}
-    <details class="toc" open style="margin-bottom: var(--space-6);">
-      <summary>Содержание статьи</summary>
-      <nav>
-        {{range .Article.Headings}}
-        <a href="#{{.ID}}" class="toc-{{.Level}}">{{.Text}}</a>
-        {{end}}
-      </nav>
-    </details>
-    {{end}}
+  <div class="reading-progress" aria-hidden="true"><span id="readingProgressBar"></span></div>
+  <div class="doc-layout">
+    <article class="doc-main">
+      {{if .Article.Headings}}
+      <details class="toc mobile-toc">
+        <summary>Содержание документа</summary>
+        <nav aria-label="Содержание">
+          {{range .Article.Headings}}<a href="#{{.ID}}" class="toc-{{.Level}}">{{.Text}}</a>{{end}}
+        </nav>
+      </details>
+      {{end}}
+      <div class="markdown">{{.Article.HTML}}</div>
+      <footer class="article-footer">
+        <div><span class="eyebrow">Идентификатор</span><code>{{.Article.Slug}}</code></div>
+        {{if .Article.Tags}}<div class="tag-list" aria-label="Теги">{{range .Article.Tags}}<a class="tag-chip" href="{{tagPath .}}">#{{.}}</a>{{end}}</div>{{end}}
+      </footer>
+    </article>
 
-    <div class="markdown">{{.Article.HTML}}</div>
-  </section>
-
-  <!-- Right Inspector Sidebar -->
-  <aside class="inspector">
-    <section>
-      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">История версий</h2>
-      <div class="timeline">
-        {{range .Versions}}
-          <article>
-            <span>v{{.VersionNo}}</span>
-            <strong>{{.Author}}</strong>
-            <p>{{.Summary}}</p>
-            <time>{{.CreatedAt}}</time>
-          </article>
-        {{else}}
-          <p class="u-muted">Версий пока нет.</p>
-        {{end}}
-      </div>
-    </section>
-
-    <section>
-      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">Связи статьи (Backlinks)</h2>
-      <div class="link-list">
-        {{range .Backlinks}}
-          <a href="{{articlePath .Slug}}">{{.Title}}</a>
-        {{else}}
-          <span class="u-muted">Обратных ссылок не обнаружено.</span>
-        {{end}}
-      </div>
-    </section>
-
-    <section>
-      <h2 style="font-size: 0.875rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; margin-bottom: var(--space-3);">Свойства документа</h2>
-      <div style="font-size: 0.875rem; display: grid; gap: var(--space-2); color: var(--text-secondary);">
-        <div><strong>Формат:</strong> Markdown</div>
-        <div><strong>Язык:</strong> ru</div>
-        <div><strong>Блокировка:</strong> ver. 1</div>
-      </div>
-    </section>
-  </aside>
-</article>
+    <aside class="inspector" aria-label="Навигация и свойства документа">
+      {{if .Article.Headings}}
+      <section class="inspector-section desktop-toc">
+        <h2>На этой странице</h2>
+        <nav class="toc-nav" aria-label="Содержание">
+          {{range .Article.Headings}}<a href="#{{.ID}}" class="toc-{{.Level}}">{{.Text}}</a>{{end}}
+        </nav>
+      </section>
+      {{end}}
+      <section class="inspector-section">
+        <h2>Свойства</h2>
+        <dl class="property-list">
+          <div><dt>Статус</dt><dd>{{statusLabel .Article.Status}}</dd></div>
+          <div><dt>Пространство</dt><dd>{{if .Article.SpaceName}}{{.Article.SpaceName}}{{else}}Общее{{end}}</dd></div>
+          <div><dt>Доступ</dt><dd>{{.Article.Visibility}}</dd></div>
+          <div><dt>Версия</dt><dd>{{.Article.LockVersion}}</dd></div>
+          <div><dt>Язык</dt><dd>{{.Article.Language}}</dd></div>
+        </dl>
+      </section>
+      <section class="inspector-section">
+        <h2>Связанные документы</h2>
+        <div class="link-list">
+          {{range .Backlinks}}<a href="{{articlePath .Slug}}"><span aria-hidden="true">↗</span>{{.Title}}</a>{{else}}<p class="u-muted">Обратных ссылок пока нет.</p>{{end}}
+        </div>
+      </section>
+      <details class="inspector-section version-panel">
+        <summary>История версий <span>{{len .Versions}}</span></summary>
+        <div class="timeline">
+          {{range .Versions}}<article><span>v{{.VersionNo}}</span><div><strong>{{.Author}}</strong><p>{{.Summary}}</p><time>{{.CreatedAt}}</time></div></article>{{else}}<p class="u-muted">Версий пока нет.</p>{{end}}
+        </div>
+      </details>
+    </aside>
+  </div>
+</div>
 {{end}}

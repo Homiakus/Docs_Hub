@@ -1,94 +1,153 @@
-/* Command Palette (Ctrl+K) Navigation Module */
-
 document.addEventListener('DOMContentLoaded', () => {
-  // Create Command Palette Modal DOM
-  const paletteHTML = `
-    <div id="commandPaletteOverlay" class="dialog-overlay" aria-hidden="true">
-      <div class="dialog-content" style="max-width: 600px; padding: 0; overflow: hidden;">
-        <div style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: var(--space-2);">
-          <span style="color: var(--text-tertiary);">🔍</span>
-          <input type="text" id="commandPaletteInput" placeholder="Поиск по документам или введите команду... (Esc для выхода)" 
-                 style="border: none; background: transparent; font-size: 1rem; padding: var(--space-2) 0; box-shadow: none;" autofocus>
-        </div>
-        <div id="commandPaletteResults" style="max-height: 360px; overflow-y: auto; padding: var(--space-2);">
-          <div style="padding: var(--space-3); font-size: 0.875rem; color: var(--text-tertiary);">Начните вводить текст для поиска...</div>
-        </div>
-      </div>
-    </div>
-  `;
+  const overlay = document.createElement('div');
+  overlay.id = 'commandPaletteOverlay';
+  overlay.className = 'dialog-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.innerHTML = `
+    <section class="dialog-content command-dialog" role="dialog" aria-modal="true" aria-labelledby="commandPaletteTitle">
+      <h2 class="sr-only" id="commandPaletteTitle">Быстрый поиск и команды</h2>
+      <div class="command-search"><span aria-hidden="true">⌕</span><input id="commandPaletteInput" type="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="commandPaletteResults" placeholder="Найти документ или выполнить команду"><kbd>Esc</kbd></div>
+      <div class="command-results" id="commandPaletteResults" role="listbox" aria-label="Результаты"></div>
+      <footer class="command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> выбрать</span><span><kbd>Enter</kbd> открыть</span><span><kbd>Esc</kbd> закрыть</span></footer>
+    </section>`;
+  document.body.appendChild(overlay);
 
-  document.body.insertAdjacentHTML('beforeend', paletteHTML);
+  const dialog = overlay.querySelector('[role="dialog"]');
+  const input = overlay.querySelector('#commandPaletteInput');
+  const results = overlay.querySelector('#commandPaletteResults');
+  const trigger = document.getElementById('commandPaletteButton');
+  let options = [];
+  let activeIndex = -1;
+  let previousFocus = null;
+  let timer = 0;
+  let controller = null;
 
-  const overlay = document.getElementById('commandPaletteOverlay');
-  const input = document.getElementById('commandPaletteInput');
-  const resultsContainer = document.getElementById('commandPaletteResults');
+  const quickActions = [
+    ...(document.querySelector('a[href="/new"]') ? [{ title: 'Создать документ', meta: 'Новый черновик', href: '/new', icon: '＋' }] : []),
+    { title: 'Расширенный поиск', meta: 'Фильтры и статусы', href: '/search', icon: '⌕' },
+    { title: 'Пространства', meta: 'Структура базы знаний', href: '/spaces', icon: '▦' },
+    { title: 'Граф знаний', meta: 'Связи между документами', href: '/graph', icon: '⌘' },
+  ];
 
-  function openPalette() {
+  function open() {
+    previousFocus = document.activeElement;
     overlay.classList.add('open');
     overlay.setAttribute('aria-hidden', 'false');
-    input.focus();
-    input.select();
+    input.setAttribute('aria-expanded', 'true');
+    document.body.style.overflow = 'hidden';
+    input.value = '';
+    render(quickActions, 'Быстрые действия');
+    window.setTimeout(() => input.focus(), 0);
   }
 
-  function closePalette() {
+  function close() {
+    controller?.abort();
+    window.clearTimeout(timer);
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    document.body.style.overflow = '';
+    previousFocus?.focus();
   }
 
-  // Keyboard shortcut binding: Ctrl+K or Cmd+K
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-      e.preventDefault();
-      if (overlay.classList.contains('open')) {
-        closePalette();
-      } else {
-        openPalette();
-      }
-    } else if (e.key === 'Escape' && overlay.classList.contains('open')) {
-      closePalette();
+  function render(items, label) {
+    options = [];
+    activeIndex = -1;
+    results.replaceChildren();
+    const groupLabel = document.createElement('div');
+    groupLabel.className = 'command-group-label';
+    groupLabel.textContent = label;
+    results.appendChild(groupLabel);
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'command-empty';
+      empty.textContent = 'Ничего не найдено. Попробуйте изменить запрос.';
+      results.appendChild(empty);
+      return;
     }
-  });
+    items.forEach((item, index) => {
+      const option = document.createElement('a');
+      option.id = `command-option-${index}`;
+      option.className = 'command-option';
+      option.href = item.href || `/a/${encodeURIComponent(item.slug)}`;
+      option.setAttribute('role', 'option');
+      option.setAttribute('aria-selected', 'false');
+      const icon = document.createElement('span');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = item.icon || '≡';
+      const copy = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = item.title;
+      const meta = document.createElement('small');
+      meta.textContent = item.meta || item.slug || '';
+      copy.append(title, meta);
+      const arrow = document.createElement('span');
+      arrow.setAttribute('aria-hidden', 'true');
+      arrow.textContent = '↗';
+      option.append(icon, copy, arrow);
+      option.addEventListener('mousemove', () => setActive(index));
+      results.appendChild(option);
+      options.push(option);
+    });
+  }
 
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closePalette();
-  });
+  function setActive(index) {
+    if (!options.length) return;
+    activeIndex = (index + options.length) % options.length;
+    options.forEach((option, optionIndex) => {
+      const active = optionIndex === activeIndex;
+      option.classList.toggle('active', active);
+      option.setAttribute('aria-selected', String(active));
+    });
+    const active = options[activeIndex];
+    input.setAttribute('aria-activedescendant', active.id);
+    active.scrollIntoView({ block: 'nearest' });
+  }
 
-  // Debounced search suggest API integration
-  let debounceTimer;
+  async function search(query) {
+    controller?.abort();
+    controller = new AbortController();
+    try {
+      const response = await fetch(`/api/v1/search/suggest?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      render((data.suggestions || []).map((item) => ({ ...item, meta: `/a/${item.slug}`, icon: '≡' })), 'Документы');
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      render([], 'Ошибка поиска');
+    }
+  }
+
   input.addEventListener('input', () => {
-    clearTimeout(debounceTimer);
+    window.clearTimeout(timer);
     const query = input.value.trim();
-    if (!query) {
-      resultsContainer.innerHTML = '<div style="padding: var(--space-3); font-size: 0.875rem; color: var(--text-tertiary);">Начните вводить текст для поиска...</div>';
-      return;
-    }
-
-    debounceTimer = setTimeout(async () => {
-      try {
-        const resp = await fetch(`/api/v1/search/suggest?q=${encodeURIComponent(query)}`);
-        if (!resp.ok) return;
-        const data = await resp.json();
-        renderResults(data.suggestions || []);
-      } catch (err) {
-        console.error('Command palette suggest error:', err);
-      }
-    }, 150);
+    if (!query) { render(quickActions, 'Быстрые действия'); return; }
+    timer = window.setTimeout(() => search(query), 140);
   });
 
-  function renderResults(items) {
-    if (items.length === 0) {
-      resultsContainer.innerHTML = '<div style="padding: var(--space-3); font-size: 0.875rem; color: var(--text-tertiary);">Ничего не найдено</div>';
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive(activeIndex + 1); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setActive(activeIndex < 0 ? options.length - 1 : activeIndex - 1); }
+    else if (event.key === 'Enter' && activeIndex >= 0) { event.preventDefault(); options[activeIndex].click(); }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      overlay.classList.contains('open') ? close() : open();
       return;
     }
-    resultsContainer.innerHTML = items.map(item => `
-      <a href="/a/${encodeURIComponent(item.slug)}" class="side-link" style="padding: var(--space-3); display: block; text-decoration: none;">
-        <span style="font-weight: 500; color: var(--text-primary);">${escapeHTML(item.title)}</span>
-        <span style="font-size: 0.75rem; color: var(--text-tertiary); margin-left: var(--space-2);">/a/${escapeHTML(item.slug)}</span>
-      </a>
-    `).join('');
-  }
-
-  function escapeHTML(str) {
-    return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
-  }
+    if (event.key === 'Escape' && overlay.classList.contains('open')) { event.preventDefault(); close(); }
+  });
+  trigger?.addEventListener('click', open);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    const focusable = [input, ...options];
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
 });

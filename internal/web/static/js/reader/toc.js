@@ -1,38 +1,45 @@
-/* Interactive Sticky Table of Contents (TOC) Module */
-
 document.addEventListener('DOMContentLoaded', () => {
-  const tocNav = document.querySelector('.toc nav');
-  const headings = document.querySelectorAll('.markdown h1[id], .markdown h2[id], .markdown h3[id], .markdown h4[id]');
+  const article = document.querySelector('.doc-main .markdown');
+  if (!article) return;
+  const headings = Array.from(article.querySelectorAll('h1[id],h2[id],h3[id],h4[id]'));
+  const links = Array.from(document.querySelectorAll('.toc-nav a,.toc nav a'));
+  const progress = document.getElementById('readingProgressBar');
 
-  if (!tocNav || headings.length === 0) return;
-
-  const tocLinks = Array.from(tocNav.querySelectorAll('a'));
-
-  // IntersectionObserver to highlight active heading on scroll
-  const observerOptions = {
-    root: null,
-    rootMargin: '-80px 0px -60% 0px',
-    threshold: 0,
-  };
-
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        const id = entry.target.getAttribute('id');
-        tocLinks.forEach((link) => {
-          if (link.getAttribute('href') === `#${id}`) {
-            link.classList.add('active');
-            link.style.color = 'var(--action-primary)';
-            link.style.fontWeight = '600';
-          } else {
-            link.classList.remove('active');
-            link.style.color = '';
-            link.style.fontWeight = '';
-          }
-        });
-      }
+  if (headings.length && links.length && 'IntersectionObserver' in window) {
+    const byID = new Map(links.map((link) => [decodeURIComponent(link.hash.slice(1)), []]));
+    links.forEach((link) => {
+      const id = decodeURIComponent(link.hash.slice(1));
+      if (!byID.has(id)) byID.set(id, []);
+      byID.get(id).push(link);
     });
-  }, observerOptions);
+    let activeID = '';
+    const setActive = (id) => {
+      if (!id || activeID === id) return;
+      activeID = id;
+      links.forEach((link) => {
+        const active = decodeURIComponent(link.hash.slice(1)) === id;
+        link.classList.toggle('active', active);
+        if (active) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+    };
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActive(visible[0].target.id);
+    }, { rootMargin: '-90px 0px -65% 0px', threshold: [0, 1] });
+    headings.forEach((heading) => observer.observe(heading));
+    setActive(headings[0].id);
+  }
 
-  headings.forEach((heading) => observer.observe(heading));
+  if (progress) {
+    const updateProgress = () => {
+      const rect = article.getBoundingClientRect();
+      const total = Math.max(1, article.offsetHeight - window.innerHeight * .55);
+      const passed = Math.min(total, Math.max(0, -rect.top + 100));
+      progress.style.width = `${(passed / total) * 100}%`;
+    };
+    updateProgress();
+    document.addEventListener('scroll', updateProgress, { passive: true });
+    window.addEventListener('resize', updateProgress);
+  }
 });

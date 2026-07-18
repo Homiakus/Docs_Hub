@@ -15,6 +15,9 @@ coverage.out
 .env.*
 node_modules/
 web/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
 docs_hub_upgrade_pack/
 minivault-enterprise
 docs-hub
+/docshub

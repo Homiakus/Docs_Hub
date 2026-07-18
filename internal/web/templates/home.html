@@ -1,87 +1,79 @@
 {{define "content"}}
-<div class="dashboard">
-  <div class="pagehead">
+<div class="dashboard page-stack">
+  <header class="pagehead dashboard-hero">
     <div>
-      <span class="eyebrow">Корпоративная база знаний</span>
-      <h1 class="text-page-title">Обзор базы знаний</h1>
-      <p class="text-secondary">Центр управления документацией, черновиками и регламентами.</p>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Единая база знаний</span>
+      <h1>Добро пожаловать, {{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</h1>
+      <p>Документы, решения и рабочие процессы команды — в одном понятном пространстве.</p>
     </div>
-    {{if .User}}
-    <a class="btn btn-primary" href="/new">Создать документ</a>
-    {{end}}
-  </div>
+    {{if not (eq .User.Role "reader")}}<a class="btn btn-primary btn-lg" href="/new"><span aria-hidden="true">＋</span> Новый документ</a>{{end}}
+  </header>
+
+  <section class="metric-grid" aria-label="Сводка базы знаний">
+    <article class="metric-card"><span class="metric-icon metric-blue" aria-hidden="true">≡</span><div><strong>{{len .RecentDocs}}</strong><span>Доступно сейчас</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-amber" aria-hidden="true">◷</span><div><strong>{{len .Drafts}}</strong><span>Мои черновики</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-violet" aria-hidden="true">✓</span><div><strong>{{len .ReviewQueue}}</strong><span>На проверке</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-green" aria-hidden="true">▦</span><div><strong>{{len .Spaces}}</strong><span>Пространств</span></div></article>
+  </section>
 
   {{if .Query}}
-  <!-- Search Overlay Mode -->
-  <section style="margin-top: var(--space-6);">
-    <h2 class="text-section-title" style="margin-bottom: var(--space-4);">Результаты быстрого поиска: "{{.Query}}"</h2>
-    <div style="display: grid; gap: var(--space-3);">
-      {{range .Articles}}
-        {{template "components/document_card" .}}
-      {{else}}
-        <p class="u-muted">Документы не найдены.</p>
-      {{end}}
+  <section class="content-section">
+    <div class="section-heading"><div><span class="eyebrow">Быстрый поиск</span><h2>Результаты для «{{.Query}}»</h2></div><a href="/search?q={{.Query}}">Открыть фильтры →</a></div>
+    <div class="document-list">
+      {{range .Articles}}{{template "components/document_card" .}}{{else}}{{template "empty_search" .}}{{end}}
     </div>
   </section>
   {{else}}
-  <!-- Dashboard Grid -->
-  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-6); margin-top: var(--space-6);">
-    <!-- Left Column: Recent Work & Drafts -->
-    <div style="display: grid; gap: var(--space-6);">
-      <section>
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3);">
-          <h2 class="text-section-title">Продолжить работу</h2>
-          <a href="/search" style="font-size: 0.875rem;">Все документы →</a>
-        </div>
-        <div style="display: grid; gap: var(--space-3);">
-          {{range .RecentDocs}}
-            {{template "components/document_card" .}}
-          {{else}}
-            {{range .Articles}}
-              {{template "components/document_card" .}}
-            {{else}}
-              <p class="u-muted">Нет недавних документов.</p>
-            {{end}}
+  <div class="dashboard-grid">
+    <div class="dashboard-main page-stack">
+      {{if .Drafts}}
+      <section class="content-section">
+        <div class="section-heading"><div><span class="eyebrow">В работе</span><h2>Продолжить редактирование</h2></div><a href="/search?status=draft">Все черновики →</a></div>
+        <div class="document-list">{{range .Drafts}}{{template "components/document_card" .}}{{end}}</div>
+      </section>
+      {{end}}
+
+      <section class="content-section">
+        <div class="section-heading"><div><span class="eyebrow">Последние изменения</span><h2>Недавние документы</h2></div><a href="/search">Все документы →</a></div>
+        <div class="document-list">
+          {{range .RecentDocs}}{{template "components/document_card" .}}{{else}}
+          <div class="empty-state"><span aria-hidden="true">◇</span><h3>Здесь появятся документы</h3><p>Создайте первый документ или выберите шаблон.</p>{{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new">Создать документ</a>{{end}}</div>
           {{end}}
         </div>
       </section>
+    </div>
 
-      {{if .Drafts}}
-      <section>
-        <h2 class="text-section-title" style="margin-bottom: var(--space-3);">Мои черновики</h2>
-        <div style="display: grid; gap: var(--space-3);">
-          {{range .Drafts}}
-            {{template "components/document_card" .}}
-          {{end}}
+    <aside class="dashboard-aside page-stack" aria-label="Быстрые действия">
+      <section class="side-card review-card">
+        <div class="side-card-head"><span class="side-card-icon" aria-hidden="true">✓</span><div><h2>Ожидают проверки</h2><p>{{len .ReviewQueue}} документов</p></div></div>
+        <div class="compact-list">
+          {{range .ReviewQueue}}
+          <a href="{{articlePath .Slug}}"><span>{{.Title}}</span><small>{{.SpaceName}}</small></a>
+          {{else}}<div class="compact-empty"><span aria-hidden="true">✓</span><p>Очередь пуста</p><small>Все документы обработаны</small></div>{{end}}
+        </div>
+        {{if .ReviewQueue}}<a class="btn btn-secondary btn-block" href="/search?status=in_review">Открыть очередь</a>{{end}}
+      </section>
+
+      {{if not (eq .User.Role "reader")}}
+      <section class="side-card">
+        <div class="side-card-head"><span class="side-card-icon violet" aria-hidden="true">✦</span><div><h2>Создать из шаблона</h2><p>Готовые структуры документов</p></div></div>
+        <div class="template-shortcuts">
+          <a href="/new?template=sop"><span aria-hidden="true">▤</span><div><strong>Регламент SOP</strong><small>Процесс и контроль</small></div><b aria-hidden="true">›</b></a>
+          <a href="/new?template=incident-report"><span aria-hidden="true">⚑</span><div><strong>Отчёт по инциденту</strong><small>Причины и действия</small></div><b aria-hidden="true">›</b></a>
+          <a href="/new?template=meeting-notes"><span aria-hidden="true">☷</span><div><strong>Протокол встречи</strong><small>Решения и задачи</small></div><b aria-hidden="true">›</b></a>
         </div>
       </section>
       {{end}}
-    </div>
 
-    <!-- Right Column: Review Queue & Quick Navigation -->
-    <div style="display: grid; gap: var(--space-6); align-content: start;">
-      <section style="padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
-        <h2 class="text-section-title" style="margin-bottom: var(--space-3); font-size: 1.125rem;">Ожидают проверки</h2>
-        {{range .ReviewQueue}}
-          <div style="padding: var(--space-2) 0; border-bottom: 1px solid var(--border-subtle);">
-            <a href="{{articlePath .Slug}}" style="font-weight: 500; font-size: 0.875rem;">{{.Title}}</a>
-            <p style="font-size: 0.75rem; color: var(--text-tertiary); margin: 2px 0 0;">Статус: {{.Status}}</p>
-          </div>
-        {{else}}
-          <p style="font-size: 0.875rem; color: var(--text-tertiary); margin: 0;">Очередь проверки пуста.</p>
-        {{end}}
+      <section class="side-card knowledge-card">
+        <span class="eyebrow">Связи</span><h2>Исследуйте базу как граф</h2><p>Находите связанные документы и пробелы в знаниях команды.</p><a class="btn btn-secondary btn-block" href="/graph">Открыть граф знаний →</a>
       </section>
-
-      <section style="padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
-        <h2 class="text-section-title" style="margin-bottom: var(--space-3); font-size: 1.125rem;">Быстрые действия</h2>
-        <div style="display: grid; gap: var(--space-2);">
-          <a class="btn btn-secondary btn-sm" href="/new" style="justify-content: flex-start;">Новый документ из шаблона</a>
-          <a class="btn btn-secondary btn-sm" href="/graph" style="justify-content: flex-start;">Открыть граф знаний</a>
-          <a class="btn btn-secondary btn-sm" href="/search" style="justify-content: flex-start;">Расширенный поиск</a>
-        </div>
-      </section>
-    </div>
+    </aside>
   </div>
   {{end}}
 </div>
+{{end}}
+
+{{define "empty_search"}}
+<div class="empty-state"><span aria-hidden="true">⌕</span><h3>Ничего не найдено</h3><p>Проверьте формулировку запроса или откройте расширенный поиск.</p><a class="btn btn-secondary" href="/search">Настроить фильтры</a></div>
 {{end}}

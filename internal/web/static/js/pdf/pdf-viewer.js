@@ -1,47 +1,28 @@
-/* Self-Hosted Embedded PDF Viewer Module */
-
 document.addEventListener('DOMContentLoaded', () => {
   const container = document.getElementById('pdfViewerContainer');
-  const pageInput = document.getElementById('pdfPageInput');
-  const prevBtn = document.getElementById('pdfPrevPage');
-  const nextBtn = document.getElementById('pdfNextPage');
-  const pageCountSpan = document.getElementById('pdfTotalPages');
+  const frame = document.getElementById('pdfFrame');
+  const input = document.getElementById('pdfPageInput');
+  const previous = document.getElementById('pdfPrevPage');
+  const next = document.getElementById('pdfNextPage');
+  if (!container || !frame || !input) return;
 
-  if (!container) return;
+  const total = Math.max(1, Number(container.dataset.totalPages || 1));
+  const source = container.dataset.pdfUrl || frame.getAttribute('src').split('#')[0];
+  const hashMatch = window.location.hash.match(/page=(\d+)/);
+  let current = Math.min(total, Math.max(1, Number(hashMatch?.[1] || 1)));
 
-  let currentPage = parseHashPage() || 1;
-  let totalPages = parseInt(container.getAttribute('data-total-pages') || '1', 10);
-
-  function parseHashPage() {
-    const match = window.location.hash.match(/#page=(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+  function show(page) {
+    current = Math.min(total, Math.max(1, Number(page) || 1));
+    input.value = String(current);
+    previous.disabled = current === 1;
+    next.disabled = current === total;
+    frame.src = `${source}#page=${current}&view=FitH`;
+    history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}#page=${current}`);
   }
 
-  function updatePageUI(pageNum) {
-    if (pageNum < 1) pageNum = 1;
-    if (pageNum > totalPages) pageNum = totalPages;
-
-    currentPage = pageNum;
-    if (pageInput) pageInput.value = currentPage;
-    if (pageCountSpan) pageCountSpan.textContent = totalPages;
-
-    // Update URL Hash Deep Link
-    window.location.hash = `#page=${currentPage}`;
-
-    const iframe = container.querySelector('iframe');
-    if (iframe && iframe.src) {
-      const url = new URL(iframe.src, window.location.origin);
-      url.hash = `page=${currentPage}`;
-      iframe.src = url.toString();
-    }
-  }
-
-  prevBtn?.addEventListener('click', () => updatePageUI(currentPage - 1));
-  nextBtn?.addEventListener('click', () => updatePageUI(currentPage + 1));
-  pageInput?.addEventListener('change', () => {
-    const val = parseInt(pageInput.value, 10);
-    if (!isNaN(val)) updatePageUI(val);
-  });
-
-  updatePageUI(currentPage);
+  previous.addEventListener('click', () => show(current - 1));
+  next.addEventListener('click', () => show(current + 1));
+  input.addEventListener('change', () => show(input.value));
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); show(input.value); } });
+  show(current);
 });

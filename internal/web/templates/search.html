@@ -1,59 +1,43 @@
 {{define "content"}}
-<div class="search-page">
-  <div class="pagehead">
-    <div>
-      <span class="eyebrow">Поисковый движок</span>
-      <h1 class="text-page-title">Поиск по базе знаний</h1>
-      <p class="text-secondary">Поиск по тексту документов, тегам, slug и содержимому вложений.</p>
+<div class="search-page page-stack">
+  <header class="pagehead">
+    <div><span class="eyebrow">Поиск и навигация</span><h1>Найдите нужное за секунды</h1><p>Ищите по заголовкам, полному тексту, slug, категориям и тегам.</p></div>
+  </header>
+
+  <form method="get" action="/search" class="search-panel" role="search">
+    <div class="search-query-row">
+      <label class="sr-only" for="searchQuery">Поисковый запрос</label>
+      <span aria-hidden="true">⌕</span>
+      <input id="searchQuery" type="search" name="q" value="{{.Query}}" placeholder="Например: архитектура API или #регламент" autofocus>
+      <button type="submit" class="btn btn-primary">Найти</button>
     </div>
-  </div>
-
-  <!-- Search Filter Panel -->
-  <form method="get" action="/search" style="display: grid; gap: var(--space-4); padding: var(--space-4); background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); margin-top: var(--space-4);">
-    <div style="display: flex; gap: var(--space-3);">
-      <input type="search" name="q" value="{{.Query}}" class="form-control" placeholder="Введите название, ключевые слова или #тег..." autofocus style="font-size: 1rem;">
-      <button type="submit" class="btn btn-primary" style="padding: 0 1.5rem;">Искать</button>
-    </div>
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-3);">
-      <div>
-        <label class="form-label">Пространство</label>
-        <select name="space" class="form-control">
-          <option value="">Все пространства</option>
-          {{range .Spaces}}
-          <option value="{{.Slug}}">{{.Name}}</option>
-          {{end}}
-        </select>
-      </div>
-
-      <div>
-        <label class="form-label">Статус</label>
-        <select name="status" class="form-control">
-          <option value="">Все статусы</option>
-          <option value="published">Опубликовано</option>
-          <option value="draft">Черновики</option>
-          <option value="in_review">На проверке</option>
-          <option value="archived">В архиве</option>
-        </select>
-      </div>
+    <div class="filter-row">
+      <label><span>Пространство</span><select name="space" class="form-control">
+        <option value="">Все пространства</option>
+        {{range .Spaces}}<option value="{{.Slug}}" {{if eq $.SearchSpace .Slug}}selected{{end}}>{{.Name}}</option>{{end}}
+      </select></label>
+      <label><span>Статус</span><select name="status" class="form-control">
+        <option value="">Все статусы</option>
+        <option value="published" {{if eq .SearchStatus "published"}}selected{{end}}>Опубликовано</option>
+        <option value="draft" {{if eq .SearchStatus "draft"}}selected{{end}}>Черновики</option>
+        <option value="in_review" {{if eq .SearchStatus "in_review"}}selected{{end}}>На проверке</option>
+        <option value="approved" {{if eq .SearchStatus "approved"}}selected{{end}}>Одобрено</option>
+        <option value="archived" {{if eq .SearchStatus "archived"}}selected{{end}}>В архиве</option>
+      </select></label>
+      {{if or .Query .SearchSpace .SearchStatus}}<a class="filter-reset" href="/search">Сбросить фильтры</a>{{end}}
     </div>
   </form>
 
-  <!-- Search Results List -->
-  <div style="margin-top: var(--space-6); display: grid; gap: var(--space-3);">
-    {{if .Query}}
-      <p style="font-size: 0.875rem; color: var(--text-tertiary);">
-        Найдено результатов: <strong>{{len .Articles}}</strong>
-      </p>
-    {{end}}
-
-    {{range .Articles}}
-      {{template "components/document_card" .}}
-    {{else}}
-      <div style="padding: var(--space-8); text-align: center; background-color: var(--surface-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);">
-        <p style="color: var(--text-secondary); margin: 0;">Ничего не найдено. Попробуйте изменить параметры поиска или ключевые слова.</p>
-      </div>
-    {{end}}
-  </div>
+  <section class="content-section search-results" aria-live="polite">
+    <div class="section-heading">
+      <div><span class="eyebrow">Результаты</span><h2>{{if .Query}}По запросу «{{.Query}}»{{else}}Все доступные документы{{end}}</h2></div>
+      <span class="result-count">{{len .Articles}} {{if eq (len .Articles) 1}}результат{{else}}результатов{{end}}</span>
+    </div>
+    <div class="document-list">
+      {{range .Articles}}{{template "components/document_card" .}}{{else}}
+      <div class="empty-state"><span aria-hidden="true">⌕</span><h3>Совпадений нет</h3><p>Попробуйте более короткий запрос, другой статус или пространство.</p><a class="btn btn-secondary" href="/search">Очистить поиск</a></div>
+      {{end}}
+    </div>
+  </section>
 </div>
 {{end}}

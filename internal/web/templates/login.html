@@ -1,10 +1,21 @@
 {{define "content"}}
-<section class="workspace-panel narrow auth">
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <form method="post" action="/login" class="u-stack" aria-label="Вход">
-    <input name="username" placeholder="Логин" autocomplete="username" autofocus>
-    <input name="password" type="password" placeholder="Пароль" autocomplete="current-password">
-    <button class="button primary">Войти</button>
-  </form>
-</section>
+<div class="auth-layout">
+  <section class="auth-brand-panel" aria-label="О продукте">
+    <a class="brand auth-brand" href="/login"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span class="brand-copy"><strong>Docs Hub</strong><small>Knowledge workspace</small></span></a>
+    <div class="auth-message"><span class="eyebrow">Знания работают вместе с командой</span><h1>Единое место для решений, процессов и контекста.</h1><p>Создавайте документы, проводите проверку и связывайте знания без хаоса в файлах и чатах.</p></div>
+    <div class="auth-proof"><span aria-hidden="true">✓</span><p><strong>Защищённое рабочее пространство</strong><small>Роли, права доступа и история изменений</small></p></div>
+  </section>
+  <section class="auth-form-panel">
+    <div class="login-card">
+      <span class="eyebrow">С возвращением</span><h2>Войдите в Docs Hub</h2><p>Используйте корпоративную учётную запись.</p>
+      {{if .Error}}<div class="error" role="alert"><span aria-hidden="true">!</span>{{.Error}}</div>{{end}}
+      <form method="post" action="/login" class="login-form">
+        <label for="loginUsername"><span>Логин</span><input class="form-control" id="loginUsername" name="username" autocomplete="username" autofocus required placeholder="name@company"></label>
+        <label for="loginPassword"><span>Пароль</span><input class="form-control" id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Введите пароль"></label>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">Войти <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="login-help">Проблемы со входом? Обратитесь к администратору пространства.</p>
+    </div>
+  </section>
+</div>
 {{end}}

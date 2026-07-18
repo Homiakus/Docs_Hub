@@ -1,203 +1,74 @@
 {{define "content"}}
-<section class="workspace-panel admin-panel">
-  <div class="pagehead">
-    <div>
-      <p class="eyebrow">Администрирование</p>
-      <h1>Панель управления</h1>
-    </div>
-    <form method="post" action="/admin/backups">
-      <input type="hidden" name="action" value="create">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <button class="button primary" type="submit">Создать бэкап</button>
-    </form>
-  </div>
+<div class="admin-page page-stack">
+  <header class="pagehead">
+    <div><span class="eyebrow">Системное управление</span><h1>Панель управления</h1><p>Пользователи, контент, права доступа и резервные копии.</p></div>
+    <form method="post" action="/admin/backups"><input type="hidden" name="action" value="create"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-primary" type="submit">＋ Создать бэкап</button></form>
+  </header>
 
-  {{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  {{if .Notice}}<div class="notice" role="status"><span aria-hidden="true">✓</span>{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="error" role="alert"><span aria-hidden="true">!</span>{{.Error}}</div>{{end}}
 
-  <div class="admin-grid">
-    <section class="admin-section admin-stats">
-      <h2>Состояние</h2>
-      <pre>{{.Stats}}</pre>
-    </section>
+  <section class="metric-grid admin-metrics" aria-label="Состояние системы">
+    <article class="metric-card"><span class="metric-icon metric-blue" aria-hidden="true">♙</span><div><strong>{{.UserCount}}</strong><span>Пользователей</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-violet" aria-hidden="true">≡</span><div><strong>{{.ArticleCount}}</strong><span>Документов</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-amber" aria-hidden="true">#</span><div><strong>{{.CategoryCount}}</strong><span>Категорий</span></div></article>
+    <article class="metric-card"><span class="metric-icon metric-green" aria-hidden="true">⇧</span><div><strong>{{.FileCount}}</strong><span>Вложений</span></div></article>
+  </section>
 
-    <section class="admin-section">
-      <h2>Новый пользователь</h2>
-      <form class="admin-form" method="post" action="/admin/users">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <input name="username" placeholder="login" required>
-        <input name="display_name" placeholder="Имя">
-        <input name="email" placeholder="email">
-        <input name="password" type="password" placeholder="Пароль" required>
-        <select name="role">
-          <option value="reader">reader</option>
-          <option value="editor">editor</option>
-          <option value="admin">admin</option>
-        </select>
-        <select name="is_active">
-          <option value="1">Активен</option>
-          <option value="0">Выключен</option>
-        </select>
-        <button class="button" type="submit">Добавить</button>
+  <nav class="admin-anchor-nav" aria-label="Разделы управления"><a href="#users">Пользователи</a><a href="#categories">Категории</a><a href="#content">Контент</a><a href="#access">Доступ</a><a href="#operations">Операции</a></nav>
+
+  <section class="admin-section" id="users">
+    <div class="admin-section-head"><div><span class="eyebrow">Команда</span><h2>Пользователи и роли</h2><p>Создание учётных записей и управление доступом к системе.</p></div><label class="admin-filter"><span class="sr-only">Фильтр пользователей</span><input class="form-control" type="search" placeholder="Найти пользователя" data-filter-input="usersList"></label></div>
+    <details class="admin-create"><summary>＋ Добавить пользователя</summary>
+      <form class="admin-form-grid" method="post" action="/admin/users">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <label><span>Логин</span><input class="form-control" name="username" required></label><label><span>Имя</span><input class="form-control" name="display_name"></label><label><span>Email</span><input class="form-control" name="email" type="email"></label><label><span>Пароль</span><input class="form-control" name="password" type="password" required minlength="8"></label>
+        <label><span>Роль</span><select class="form-control" name="role"><option value="reader">Читатель</option><option value="editor">Редактор</option><option value="admin">Администратор</option></select></label><label><span>Статус</span><select class="form-control" name="is_active"><option value="1">Активен</option><option value="0">Выключен</option></select></label>
+        <button class="btn btn-primary" type="submit">Создать пользователя</button>
       </form>
-    </section>
-  </div>
-
-  <section class="admin-section">
-    <h2>Пользователи и роли</h2>
-    <div class="admin-list users-list">
-      {{range .AdminUsers}}
-      <form class="admin-rowform" method="post" action="/admin/users">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <input name="username" value="{{.Username}}" aria-label="Логин">
-        <input name="display_name" value="{{.DisplayName}}" aria-label="Имя">
-        <input name="email" value="{{.Email}}" aria-label="Email">
-        <select name="role" aria-label="Роль">
-          <option value="reader" {{if eq .Role "reader"}}selected{{end}}>reader</option>
-          <option value="editor" {{if eq .Role "editor"}}selected{{end}}>editor</option>
-          <option value="admin" {{if eq .Role "admin"}}selected{{end}}>admin</option>
-        </select>
-        <select name="is_active" aria-label="Статус">
-          <option value="1" {{if .Active}}selected{{end}}>Активен</option>
-          <option value="0" {{if not .Active}}selected{{end}}>Выключен</option>
-        </select>
-        <button class="button" type="submit">Сохранить</button>
-      </form>
-      <form class="admin-password" method="post" action="/admin/users/password">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <input name="password" type="password" placeholder="Новый пароль для {{.Username}}" required>
-        <button class="button ghost" type="submit">Сменить пароль</button>
-      </form>
-      {{else}}<p class="u-muted">Пользователей нет.</p>{{end}}
+    </details>
+    <div class="admin-list" id="usersList">
+      {{range .AdminUsers}}<article class="admin-item" data-filter-text>
+        <div class="admin-item-title"><span class="user-avatar" aria-hidden="true">{{if .DisplayName}}{{initial .DisplayName}}{{else}}{{initial .Username}}{{end}}</span><div><h3>{{if .DisplayName}}{{.DisplayName}}{{else}}{{.Username}}{{end}}</h3><p>@{{.Username}} · {{.Email}}</p></div><span class="badge {{if .Active}}badge-published{{else}}badge-archived{{end}}">{{if .Active}}Активен{{else}}Выключен{{end}}</span></div>
+        <form class="admin-row-form" method="post" action="/admin/users">
+          <input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <label><span>Логин</span><input class="form-control" name="username" value="{{.Username}}"></label><label><span>Имя</span><input class="form-control" name="display_name" value="{{.DisplayName}}"></label><label><span>Email</span><input class="form-control" name="email" value="{{.Email}}"></label>
+          <label><span>Роль</span><select class="form-control" name="role"><option value="reader" {{if eq .Role "reader"}}selected{{end}}>Читатель</option><option value="editor" {{if eq .Role "editor"}}selected{{end}}>Редактор</option><option value="admin" {{if eq .Role "admin"}}selected{{end}}>Администратор</option></select></label>
+          <label><span>Статус</span><select class="form-control" name="is_active"><option value="1" {{if .Active}}selected{{end}}>Активен</option><option value="0" {{if not .Active}}selected{{end}}>Выключен</option></select></label><button class="btn btn-secondary" type="submit">Сохранить</button>
+        </form>
+        <form class="password-form" method="post" action="/admin/users/password"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><label><span class="sr-only">Новый пароль для {{.Username}}</span><input class="form-control" name="password" type="password" placeholder="Новый пароль" required minlength="8"></label><button class="btn btn-ghost" type="submit">Сбросить пароль</button></form>
+      </article>{{else}}<p class="u-muted">Пользователей нет.</p>{{end}}
     </div>
   </section>
 
-  <section class="admin-section">
-    <h2>Категории и левая панель</h2>
-    <form class="admin-form category-create" method="post" action="/admin/categories">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <input name="name" placeholder="Название" required>
-      <input name="slug" placeholder="slug">
-      <input name="description" placeholder="Описание">
-      <input name="nav_order" type="number" value="100" aria-label="Порядок">
-      <select name="is_visible">
-        <option value="1">Показывать слева</option>
-        <option value="0">Скрыть слева</option>
-      </select>
-      <button class="button" type="submit">Добавить</button>
-    </form>
-    <div class="admin-list category-list">
-      {{range .AdminCategories}}
-      <form class="admin-rowform category-row" method="post" action="/admin/categories">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <input name="name" value="{{.Name}}" aria-label="Название">
-        <input name="slug" value="{{.Slug}}" aria-label="Slug">
-        <input name="description" value="{{.Description}}" aria-label="Описание">
-        <input name="nav_order" type="number" value="{{.NavOrder}}" aria-label="Порядок">
-        <select name="is_visible" aria-label="Видимость">
-          <option value="1" {{if .Visible}}selected{{end}}>В левой панели</option>
-          <option value="0" {{if not .Visible}}selected{{end}}>Скрыта</option>
-        </select>
-        <span class="count-pill">{{.Count}}</span>
-        <button class="button" type="submit">Сохранить</button>
-        <button class="button ghost danger" name="action" value="delete" type="submit">Удалить</button>
-      </form>
-      {{else}}<p class="u-muted">Категорий пока нет.</p>{{end}}
+  <section class="admin-section" id="categories">
+    <div class="admin-section-head"><div><span class="eyebrow">Таксономия</span><h2>Категории</h2><p>Управляйте навигацией и классификацией документов.</p></div></div>
+    <form class="admin-form-grid compact" method="post" action="/admin/categories"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><label><span>Название</span><input class="form-control" name="name" required></label><label><span>Slug</span><input class="form-control" name="slug"></label><label><span>Описание</span><input class="form-control" name="description"></label><label><span>Порядок</span><input class="form-control" name="nav_order" type="number" value="100"></label><label><span>Навигация</span><select class="form-control" name="is_visible"><option value="1">Показывать</option><option value="0">Скрыть</option></select></label><button class="btn btn-primary" type="submit">Добавить</button></form>
+    <div class="admin-list dense">
+      {{range .AdminCategories}}<form class="admin-row-form category-row" method="post" action="/admin/categories"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input class="form-control" name="name" value="{{.Name}}" aria-label="Название"><input class="form-control" name="slug" value="{{.Slug}}" aria-label="Slug"><input class="form-control" name="description" value="{{.Description}}" aria-label="Описание"><input class="form-control" name="nav_order" type="number" value="{{.NavOrder}}" aria-label="Порядок"><select class="form-control" name="is_visible" aria-label="Видимость"><option value="1" {{if .Visible}}selected{{end}}>В меню</option><option value="0" {{if not .Visible}}selected{{end}}>Скрыта</option></select><span class="count-pill">{{.Count}}</span><button class="btn btn-secondary" type="submit">Сохранить</button><button class="btn btn-ghost btn-danger-text" name="action" value="delete" type="submit" data-confirm="Удалить категорию?">Удалить</button></form>{{else}}<p class="u-muted">Категорий пока нет.</p>{{end}}
     </div>
   </section>
 
-  <section class="admin-section">
-    <h2>Содержимое</h2>
-    <div class="admin-list article-list">
-      {{range .Articles}}
-      {{$article := .}}
-      <form class="admin-rowform article-row" method="post" action="/admin/articles">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <a href="{{articlePath .Slug}}">{{.Title}}</a>
-        <code>{{.Slug}}</code>
-        <select name="category_id" aria-label="Категория">
-          <option value="0">Без категории</option>
-          {{range $.AdminCategories}}<option value="{{.ID}}" {{if eq $article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
-        </select>
-        <select name="visibility" aria-label="Видимость">
-          <option value="authenticated" {{if eq .Visibility "authenticated"}}selected{{end}}>Все вошедшие</option>
-          <option value="private" {{if eq .Visibility "private"}}selected{{end}}>Приватно</option>
-          <option value="public" {{if eq .Visibility "public"}}selected{{end}}>Публично</option>
-        </select>
-        <a class="button ghost" href="{{editPath .Slug}}">Править</a>
-        <button class="button" type="submit">Сохранить</button>
-        <button class="button ghost danger" name="action" value="delete" type="submit">Скрыть</button>
-      </form>
-      {{else}}<p class="u-muted">Статей пока нет.</p>{{end}}
+  <section class="admin-section" id="content">
+    <div class="admin-section-head"><div><span class="eyebrow">База знаний</span><h2>Документы</h2><p>Категории, видимость и обслуживание контента.</p></div><label class="admin-filter"><span class="sr-only">Фильтр документов</span><input class="form-control" type="search" placeholder="Найти документ" data-filter-input="articlesList"></label></div>
+    <div class="admin-list dense" id="articlesList">
+      {{range .Articles}}{{$article := .}}<form class="admin-row-form article-row" method="post" action="/admin/articles" data-filter-text><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><div class="admin-document-title"><a href="{{articlePath .Slug}}">{{.Title}}</a><small>{{.SpaceName}} · {{statusLabel .Status}}</small></div><select class="form-control" name="category_id" aria-label="Категория"><option value="0">Без категории</option>{{range $.AdminCategories}}<option value="{{.ID}}" {{if eq $article.CategoryID .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select><select class="form-control" name="visibility" aria-label="Видимость"><option value="authenticated" {{if eq .Visibility "authenticated"}}selected{{end}}>Сотрудники</option><option value="private" {{if eq .Visibility "private"}}selected{{end}}>Приватно</option><option value="public" {{if eq .Visibility "public"}}selected{{end}}>Публично</option></select><a class="btn btn-ghost" href="{{editPath .Slug}}">Править</a><button class="btn btn-secondary" type="submit">Сохранить</button><button class="btn btn-ghost btn-danger-text" name="action" value="delete" type="submit" data-confirm="Скрыть документ?">Скрыть</button></form>{{else}}<p class="u-muted">Документов пока нет.</p>{{end}}
     </div>
   </section>
 
-  <section class="admin-section">
-    <h2>Доступ к приватным статьям</h2>
-    <form class="admin-form access-form" method="post" action="/admin/access">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <select name="article_id" required>
-        <option value="">Статья</option>
-        {{range .Articles}}<option value="{{.ID}}">{{.Title}}</option>{{end}}
-      </select>
-      <select name="user_id" required>
-        <option value="">Пользователь</option>
-        {{range .AdminUsers}}<option value="{{.ID}}">{{.Username}}</option>{{end}}
-      </select>
-      <select name="permission">
-        <option value="read">read</option>
-        <option value="write">write</option>
-        <option value="admin">admin</option>
-        <option value="remove">удалить доступ</option>
-      </select>
-      <button class="button" type="submit">Применить</button>
-    </form>
-    <div class="admin-access-list">
-      {{range .AdminAccess}}
-      <form method="post" action="/admin/access">
-        <input type="hidden" name="article_id" value="{{.ArticleID}}">
-        <input type="hidden" name="user_id" value="{{.UserID}}">
-        <input type="hidden" name="permission" value="remove">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <span><a href="{{articlePath .ArticleSlug}}">{{.ArticleTitle}}</a></span>
-        <span>{{.Username}}</span>
-        <strong>{{.Permission}}</strong>
-        <button class="button ghost" type="submit">Убрать</button>
-      </form>
-      {{else}}<p class="u-muted">Индивидуальные доступы не заданы.</p>{{end}}
-    </div>
+  <section class="admin-section" id="access">
+    <div class="admin-section-head"><div><span class="eyebrow">Безопасность</span><h2>Индивидуальный доступ</h2><p>Точечные разрешения для приватных документов.</p></div></div>
+    <form class="admin-form-grid compact" method="post" action="/admin/access"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><label><span>Документ</span><select class="form-control" name="article_id" required><option value="">Выберите</option>{{range .Articles}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label><label><span>Пользователь</span><select class="form-control" name="user_id" required><option value="">Выберите</option>{{range .AdminUsers}}<option value="{{.ID}}">{{.Username}}</option>{{end}}</select></label><label><span>Разрешение</span><select class="form-control" name="permission"><option value="read">Чтение</option><option value="write">Редактирование</option><option value="admin">Управление</option><option value="remove">Удалить доступ</option></select></label><button class="btn btn-primary" type="submit">Применить</button></form>
+    <div class="permission-list">{{range .AdminAccess}}<form method="post" action="/admin/access"><input type="hidden" name="article_id" value="{{.ArticleID}}"><input type="hidden" name="user_id" value="{{.UserID}}"><input type="hidden" name="permission" value="remove"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><a href="{{articlePath .ArticleSlug}}">{{.ArticleTitle}}</a><span>@{{.Username}}</span><strong>{{.Permission}}</strong><button class="btn btn-ghost" type="submit">Убрать</button></form>{{else}}<p class="u-muted">Индивидуальные доступы не заданы.</p>{{end}}</div>
   </section>
 
-  <section class="admin-section">
-    <h2>Бэкапы</h2>
-    <div class="admin-access-list">
-      {{range .Backups}}
-      <form method="post" action="/admin/backups">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="name" value="{{.Name}}">
-        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-        <span><a href="/admin/backups/{{.Name}}">{{.Name}}</a></span>
-        <span>{{.SizeBytes}} bytes</span>
-        <time>{{.CreatedAt}}</time>
-        <button class="button ghost danger" type="submit">Удалить</button>
-      </form>
-      {{else}}<p class="u-muted">Бэкапов пока нет.</p>{{end}}
+  <section class="admin-section" id="operations">
+    <div class="admin-section-head"><div><span class="eyebrow">Эксплуатация</span><h2>Резервные копии и импорт</h2><p>Сохраняйте состояние базы и переносите Obsidian vault.</p></div></div>
+    <div class="operations-grid">
+      <div class="operation-card"><h3>Резервные копии</h3><div class="backup-list">{{range .Backups}}<form method="post" action="/admin/backups"><input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><div><a href="/admin/backups/{{.Name}}">{{.Name}}</a><small>{{.SizeBytes}} байт · {{.CreatedAt}}</small></div><button class="btn btn-ghost btn-danger-text" type="submit" data-confirm="Удалить резервную копию?">Удалить</button></form>{{else}}<p class="u-muted">Бэкапов пока нет.</p>{{end}}</div></div>
+      <div class="operation-card"><h3>Импорт Obsidian</h3><p>Загрузите ZIP-архив. Markdown, wiki-ссылки, медиа и PDF будут перенесены автоматически.</p><form class="upload-form" method="post" action="/admin/import-obsidian" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><label><span>ZIP-архив vault</span><input class="form-control" type="file" name="vault" accept=".zip" required></label><button class="btn btn-primary" type="submit">Импортировать</button></form></div>
     </div>
   </section>
-
-  <section class="admin-section">
-    <h2>Импорт Obsidian vault</h2>
-    <p class="u-muted">Загрузите .zip архив вашего Obsidian хранилища. Все .md файлы станут статьями, изображения и вложения будут загружены автоматически. Wiki-ссылки [[...]] конвертируются в ссылки DocsHub.</p>
-    <form class="admin-form" method="post" action="/admin/import-obsidian" enctype="multipart/form-data">
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-      <input type="file" name="vault" accept=".zip" required>
-      <button class="button primary" type="submit">Импортировать</button>
-    </form>
-  </section>
-</section>
+</div>
 <script defer src="/static/js/admin/data-grid.js"></script>
 {{end}}

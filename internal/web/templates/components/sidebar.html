@@ -1,82 +1,67 @@
 {{define "components/sidebar"}}
-<aside class="sidepanel" id="mobile-navigation" aria-label="Боковое меню">
+{{$root := .}}
+<aside class="sidepanel" id="mobile-navigation" aria-label="Основная навигация">
   <div class="sidepanel-head">
-    <a class="brand" href="/">
-      <span class="brand-mark">DH</span>
-      <span>{{.SiteName}}</span>
+    <a class="brand" href="/" aria-label="{{.SiteName}} — главная">
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="brand-copy"><strong>Docs Hub</strong><small>Knowledge workspace</small></span>
     </a>
-    <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть меню">
-      <span aria-hidden="true">×</span>
-    </button>
+    <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть навигацию">×</button>
   </div>
 
-  <nav class="side-nav" aria-label="Навигация">
+  <nav class="side-nav" aria-label="Разделы">
     <section>
-      <h2>Навигация</h2>
-      <a class="side-link" href="/"><span>Главная</span></a>
-      <a class="side-link" href="/spaces"><span>Пространства</span></a>
-      <a class="side-link" href="/search"><span>Поиск (Ctrl+K)</span></a>
-      {{if .User}}<a class="side-link" href="/new"><span>Создать документ</span></a>{{end}}
-      {{if .User}}<a class="side-link" href="/graph"><span>Граф знаний</span></a>{{end}}
+      <h2>Рабочее пространство</h2>
+      <a class="side-link {{if eq .CurrentPath "/"}}active{{end}}" href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>
+        <span class="nav-icon" aria-hidden="true">⌂</span><span>Обзор</span>
+      </a>
+      <a class="side-link {{if eq .CurrentPath "/search"}}active{{end}}" href="/search" {{if eq .CurrentPath "/search"}}aria-current="page"{{end}}>
+        <span class="nav-icon" aria-hidden="true">⌕</span><span>Поиск</span><kbd>⌘K</kbd>
+      </a>
+      <a class="side-link {{if eq .CurrentPath "/spaces"}}active{{end}}" href="/spaces" {{if eq .CurrentPath "/spaces"}}aria-current="page"{{end}}>
+        <span class="nav-icon" aria-hidden="true">▦</span><span>Пространства</span>
+      </a>
+      <a class="side-link {{if eq .CurrentPath "/graph"}}active{{end}}" href="/graph" {{if eq .CurrentPath "/graph"}}aria-current="page"{{end}}>
+        <span class="nav-icon" aria-hidden="true">⌘</span><span>Граф знаний</span>
+      </a>
     </section>
 
     {{if .Spaces}}
-    <section>
-      <h2>Пространства</h2>
+    <section class="nav-collection">
+      <div class="nav-section-head"><h2>Пространства</h2><a href="/spaces" aria-label="Все пространства">Все</a></div>
       {{range .Spaces}}
-      <a class="side-link subtle" href="/spaces/{{.Slug}}">
-        <span>{{.Name}}</span>
-        <em>{{.Count}}</em>
+      <a class="side-link subtle {{if eq $root.CurrentSpace.ID .ID}}active{{end}}" href="/spaces/{{.Slug}}">
+        <span class="space-dot" aria-hidden="true"></span><span>{{.Name}}</span><em>{{.Count}}</em>
       </a>
       {{end}}
     </section>
     {{end}}
 
     {{if .Categories}}
-    <section>
+    <section class="nav-collection categories-nav">
       <h2>Категории</h2>
       {{range .Categories}}
       <a class="side-link subtle" href="{{tagPath .Slug}}">
-        <span>{{.Name}}</span>
-        <em>{{.Count}}</em>
+        <span class="nav-hash" aria-hidden="true">#</span><span>{{.Name}}</span><em>{{.Count}}</em>
       </a>
       {{end}}
     </section>
     {{end}}
-
-    <section>
-      <h2>Управление</h2>
-      {{if .User}}
-        {{if eq .User.Role "admin"}}
-        <a class="side-link" href="/admin"><span>Администрирование</span></a>
-        {{end}}
-        <form method="post" action="/logout" class="inline">
-          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-          <button class="side-link side-button" type="submit"><span>Выйти ({{.User.Username}})</span></button>
-        </form>
-      {{else}}
-        <a class="side-link" href="/login"><span>Войти</span></a>
-      {{end}}
-    </section>
   </nav>
 
-  {{if .Activities}}
-  <section class="side-activity">
-    <h2>Недавняя активность</h2>
-    {{range .Activities}}
-      <article>
-        <strong>{{.Actor}}</strong>
-        {{if .Slug}}<a href="{{articlePath .Slug}}">{{.Title}}</a>{{else}}<span>{{.Title}}</span>{{end}}
-        <p>{{.Summary}}</p>
-      </article>
-    {{end}}
-  </section>
-  {{end}}
-
   <div class="side-footer">
-    <button class="theme-toggle" id="themeToggle" aria-label="Переключить тему" title="Светлая/тёмная тема">
-      <span class="theme-icon">☀️</span>
+    {{if eq .User.Role "admin"}}
+    <a class="side-link {{if eq .CurrentPath "/admin"}}active{{end}}" href="/admin">
+      <span class="nav-icon" aria-hidden="true">⚙</span><span>Управление</span>
+    </a>
+    {{end}}
+    <button class="side-link theme-toggle" id="themeToggle" type="button" aria-label="Переключить цветовую тему">
+      <span class="nav-icon theme-icon" aria-hidden="true">◐</span><span>Тема</span><em>Сменить</em>
     </button>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button class="side-link side-button" type="submit"><span class="nav-icon" aria-hidden="true">↪</span><span>Выйти</span><em>{{.User.Username}}</em></button>
+    </form>
   </div>
 </aside>
 {{end}}
