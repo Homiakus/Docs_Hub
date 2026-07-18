@@ -223,7 +223,7 @@ type Authorizer interface {
 
 ### 5.1. Репозиторий
 - [x] 1. Удалить из Git `bin/docshub` размером около 24 МБ.
-- [x] 2. Внести `docs_hub_upgrade_pack` и бинарники в исключения `.gitignore`.
+- [x] 2. Удалить устаревший `docs_hub_upgrade_pack` из Git и оставить upgrade-пакеты и бинарники в исключениях `.gitignore`.
 - [x] 3. Обновить `.gitignore`: бинарники, coverage, data, uploads, backup, временные ZIP и локальные env.
 - [x] 4. Актуализировать `README.md`, `docs/ARCHITECTURE.md` и `docs/ROADMAP.md`.
 - [x] 5. Добавить `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`.
