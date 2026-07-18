@@ -3029,6 +3029,9 @@ func clientIP(r *http.Request) string {
 // loginRateLimiter applies a strict rate limit (5 req/min, burst 3) on login attempts.
 // This is a separate limiter from the global rate limiter for brute-force protection.
 func (s *Server) loginRateLimiter() func(http.Handler) http.Handler {
+	if !s.cfg.RateLimit.Enabled {
+		return func(next http.Handler) http.Handler { return next }
+	}
 	type bucket struct {
 		tokens   float64
 		lastSeen time.Time

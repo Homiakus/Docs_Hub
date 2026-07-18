@@ -15,7 +15,7 @@ async function login(page: Page) {
 
 async function createDocument(page: Page, title: string, content: string) {
   await page.goto('/new');
-  await page.getByLabel('Заголовок документа').fill(title);
+  await page.getByRole('textbox', { name: 'Заголовок документа' }).fill(title);
   await page.getByLabel('Текст документа в Markdown').fill(content);
   await page.getByRole('button', { name: /Сохранить/ }).click();
   await expect(page).toHaveURL(/\/a\//);
@@ -64,7 +64,7 @@ test('command palette поддерживает поиск и стрелочну�
 test('автосохранение принимает id сервера и восстанавливает документ', async ({ page }, testInfo) => {
   const title = `Autosave ${Date.now()} ${testInfo.project.name}`;
   await page.goto('/new');
-  await page.getByLabel('Заголовок документа').fill(title);
+  await page.getByRole('textbox', { name: 'Заголовок документа' }).fill(title);
   await page.getByLabel('Текст документа в Markdown').fill('## Проверка\n\nЧерновик сохраняется атомарно.');
   await expect(page.locator('#autosaveIndicator')).toContainText(/Сохранено|Все изменения сохранены/, { timeout: 10_000 });
   await expect(page).toHaveURL(/\/edit\//);
@@ -72,7 +72,7 @@ test('автосохранение принимает id сервера и во�
   await page.getByLabel('Текст документа в Markdown').fill('## Проверка\n\nЧерновик сохраняется атомарно.\n\nВторая версия.');
   await expect(page.locator('input[name="lock_version"]')).toHaveValue('2', { timeout: 10_000 });
   await page.reload();
-  await expect(page.getByLabel('Заголовок документа')).toHaveValue(title);
+  await expect(page.getByRole('textbox', { name: 'Заголовок документа' })).toHaveValue(title);
   await expect(page.getByLabel('Текст документа в Markdown')).toHaveValue(/Черновик сохраняется атомарно/);
 });
 
@@ -94,7 +94,7 @@ test('workflow и фильтры поиска образуют связный с
 test('PDF загружается, связывается с документом и открывается в viewer', async ({ page }, testInfo) => {
   const title = `PDF ${Date.now()} ${testInfo.project.name}`;
   await page.goto('/new');
-  await page.getByLabel('Заголовок документа').fill(title);
+  await page.getByRole('textbox', { name: 'Заголовок документа' }).fill(title);
   await page.locator('#mediaInput').setInputFiles({
     name: 'ui-audit.pdf',
     mimeType: 'application/pdf',

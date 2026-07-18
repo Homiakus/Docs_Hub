@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function render(items, label) {
     options = [];
     activeIndex = -1;
+    input.removeAttribute('aria-activedescendant');
     results.replaceChildren();
     const groupLabel = document.createElement('div');
     groupLabel.className = 'command-group-label';
@@ -108,14 +109,19 @@ document.addEventListener('DOMContentLoaded', () => {
   async function search(query) {
     controller?.abort();
     controller = new AbortController();
+    const normalizedQuery = query.toLocaleLowerCase('ru');
+    const actionMatches = quickActions.filter((item) =>
+      `${item.title} ${item.meta}`.toLocaleLowerCase('ru').includes(normalizedQuery),
+    );
     try {
       const response = await fetch(`/api/v1/search/suggest?q=${encodeURIComponent(query)}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      render((data.suggestions || []).map((item) => ({ ...item, meta: `/a/${item.slug}`, icon: '≡' })), 'Документы');
+      const documents = (data.suggestions || []).map((item) => ({ ...item, meta: `/a/${item.slug}`, icon: '≡' }));
+      render([...actionMatches, ...documents], actionMatches.length ? 'Команды и документы' : 'Документы');
     } catch (error) {
       if (error.name === 'AbortError') return;
-      render([], 'Ошибка поиска');
+      render(actionMatches, actionMatches.length ? 'Команды' : 'Ошибка поиска');
     }
   }
 
@@ -123,6 +129,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.clearTimeout(timer);
     const query = input.value.trim();
     if (!query) { render(quickActions, 'Быстрые действия'); return; }
+    const normalizedQuery = query.toLocaleLowerCase('ru');
+    render(quickActions.filter((item) =>
+      `${item.title} ${item.meta}`.toLocaleLowerCase('ru').includes(normalizedQuery),
+    ), 'Команды');
     timer = window.setTimeout(() => search(query), 140);
   });
 

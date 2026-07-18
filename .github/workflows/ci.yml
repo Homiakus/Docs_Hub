@@ -59,8 +59,12 @@ jobs:
 
       - name: Generate ephemeral UI test credentials
         run: |
-          printf 'E2E_ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 16)" >> "$GITHUB_ENV"
-          printf 'E2E_SESSION_SECRET=%s\n' "$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          admin_password="$(openssl rand -hex 16)"
+          session_secret="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$admin_password"
+          printf '::add-mask::%s\n' "$session_secret"
+          printf 'E2E_ADMIN_PASSWORD=%s\n' "$admin_password" >> "$GITHUB_ENV"
+          printf 'E2E_SESSION_SECRET=%s\n' "$session_secret" >> "$GITHUB_ENV"
 
       - name: Run UI, responsive and accessibility tests
         working-directory: tests/e2e

@@ -29,9 +29,9 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
-    { name: 'Desktop 1440', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'Tablet 768', use: { ...devices['iPad Mini'], viewport: { width: 768, height: 1024 } } },
-    { name: 'Mobile 390', use: { ...devices['iPhone 13'], viewport: { width: 390, height: 844 } } },
+    { name: 'Desktop 1440', use: { ...devices['Desktop Chrome'], browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
+    { name: 'Tablet 768', use: { ...devices['iPad Mini'], browserName: 'chromium', viewport: { width: 768, height: 1024 } } },
+    { name: 'Mobile 390', use: { ...devices['iPhone 13'], browserName: 'chromium', viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
     command: 'cd ../.. && go run ./cmd/docshub',
