@@ -3,18 +3,18 @@
 <html lang="ru" data-theme="light">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f6f7fb">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>{{.Title}} · {{.SiteName}}</title>
-  <script>try{document.documentElement.dataset.theme=localStorage.getItem('docs-hub-theme')||'light'}catch(e){}</script>
+  <script>document.documentElement.classList.add('js');try{document.documentElement.dataset.theme=localStorage.getItem('docs-hub-theme')||'light'}catch(e){}</script>
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
   {{if .User}}<script defer src="/static/js/navigation/command-palette.js"></script>{{end}}
   <script defer src="/static/js/reader/toc.js"></script>
   {{if or .Article.HasMermaid .IsEditor}}
-  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.mermaid){mermaid.initialize({startOnLoad:true,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral',securityLevel:'strict'})}})</script>
   {{end}}
 </head>

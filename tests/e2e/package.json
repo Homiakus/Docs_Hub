@@ -5,7 +5,8 @@
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
-    "test:desktop": "playwright test --project='Desktop 1440'"
+    "test:desktop": "playwright test --project='Desktop Chromium 1440'",
+    "test:mobile": "playwright test --project='Mobile Chromium' --project='Mobile WebKit'"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",

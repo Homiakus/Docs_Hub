@@ -3,6 +3,8 @@ package httpapp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/homiakus/docshub-next/internal/auth"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
 )
@@ -30,8 +33,8 @@ func newTestApp(t *testing.T) (*httptest.Server, *http.Client, *db.DB) {
 		UploadDir:     filepath.Join(dir, "uploads"),
 		SiteName:      "Docs Hub Test",
 		AdminUser:     "admin",
-		AdminPassword: "admin123",
-		SessionSecret: "test-secret",
+		AdminPassword: randomTestCredential(t, 16),
+		SessionSecret: randomTestCredential(t, 32),
 	}
 	database, err := db.Open(context.Background(), cfg.DBPath)
 	if err != nil {
@@ -56,12 +59,29 @@ func newTestApp(t *testing.T) (*httptest.Server, *http.Client, *db.DB) {
 	return httptest.NewServer(app.Routes()), client, database
 }
 
+func randomTestCredential(t *testing.T, size int) string {
+	t.Helper()
+	value := make([]byte, size)
+	if _, err := rand.Read(value); err != nil {
+		t.Fatalf("generate test credential: %v", err)
+	}
+	return hex.EncodeToString(value)
+}
+
 // loginTestUser logs in as admin and returns the CSRF token from the session.
 func loginTestUser(t *testing.T, client *http.Client, baseURL string, database *db.DB) string {
 	t.Helper()
+	password := randomTestCredential(t, 18)
+	passwordHash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ExecContext(context.Background(), `UPDATE users SET password_hash=? WHERE username='admin'`, passwordHash); err != nil {
+		t.Fatal(err)
+	}
 	res, err := client.PostForm(baseURL+"/login", url.Values{
 		"username": {"admin"},
-		"password": {"admin123"},
+		"password": {password},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -527,7 +547,9 @@ func TestPDFUploadLinksToFunctionalViewer(t *testing.T) {
 	}
 	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "handbook.pdf") || !strings.Contains(string(body), media.URL+"#page=1") {
+	viewerHTML := string(body)
+	if res.StatusCode != http.StatusOK || !strings.Contains(viewerHTML, "handbook.pdf") || !strings.Contains(viewerHTML, media.URL) ||
+		!strings.Contains(viewerHTML, `id="pdfCanvas"`) || !strings.Contains(viewerHTML, `/static/js/pdf/pdf-viewer.js`) || strings.Contains(viewerHTML, "<iframe") {
 		t.Fatalf("PDF viewer status=%d body=%s", res.StatusCode, body)
 	}
 	res, err = client.Get(ts.URL + media.URL)
@@ -537,5 +559,26 @@ func TestPDFUploadLinksToFunctionalViewer(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("PDF download status=%d", res.StatusCode)
+	}
+}
+
+func TestStaticAssetsHaveCacheAndWorkerSecurityHeaders(t *testing.T) {
+	ts, client, _ := newTestApp(t)
+	defer ts.Close()
+
+	res, err := client.Get(ts.URL + "/static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("static status=%d, want %d", res.StatusCode, http.StatusOK)
+	}
+	if got := res.Header.Get("Cache-Control"); got != "public, max-age=300, must-revalidate" {
+		t.Fatalf("static Cache-Control=%q", got)
+	}
+	csp := res.Header.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "worker-src 'self' blob: https://cdn.jsdelivr.net") || !strings.Contains(csp, "connect-src 'self' https://cdn.jsdelivr.net") {
+		t.Fatalf("CSP does not permit the pinned PDF worker: %q", csp)
 	}
 }

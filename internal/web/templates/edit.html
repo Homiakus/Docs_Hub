@@ -51,19 +51,24 @@
         <span class="toolbar-help">Markdown · <kbd>Ctrl</kbd> + <kbd>S</kbd></span>
       </div>
 
-      <div class="editorgrid">
-        <div class="editor-pane">
+      <div class="editor-pane-switch" role="tablist" aria-label="Режим редактора">
+        <button type="button" role="tab" id="editorTabEdit" aria-controls="editorPane" aria-selected="true" data-editor-pane="edit">Редактор</button>
+        <button type="button" role="tab" id="editorTabPreview" aria-controls="previewPane" aria-selected="false" data-editor-pane="preview">Предпросмотр</button>
+      </div>
+
+      <div class="editorgrid" data-mobile-pane="edit">
+        <div class="editor-pane" id="editorPane" role="tabpanel" aria-labelledby="editorTabEdit">
           <div class="pane-label"><span>Markdown</span><small id="editorWordCount">0 слов</small></div>
           <label class="sr-only" for="content">Текст документа в Markdown</label>
           <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Используйте Markdown или панель форматирования…">{{.Article.Content}}</textarea>
         </div>
-        <div class="preview-pane">
+        <div class="preview-pane" id="previewPane" role="tabpanel" aria-labelledby="editorTabPreview">
           <div class="pane-label"><span>Предпросмотр</span><small>Обновляется автоматически</small></div>
           <div id="preview" class="markdown preview" aria-live="polite"></div>
         </div>
       </div>
 
-      <div class="dropzone" id="dropzone">
+      <div class="dropzone" id="dropzone" aria-live="polite">
         <input type="file" id="mediaInput" accept="image/*,audio/*,video/*,application/pdf,.pdf" multiple hidden>
         <span class="dropzone-icon" aria-hidden="true">⇧</span>
         <div><strong>Добавьте вложения</strong><p>Перетащите файлы сюда или выберите изображения, медиа и PDF до 64 МБ.</p></div>
@@ -71,8 +76,8 @@
       </div>
     </section>
 
-    <aside class="editor-settings" aria-label="Настройки документа">
-      <div class="settings-head"><div><span class="eyebrow">Параметры</span><h2>Свойства документа</h2></div><span aria-hidden="true">⚙</span></div>
+    <details class="editor-settings" aria-label="Настройки документа" open>
+      <summary class="settings-head"><div><span class="eyebrow">Параметры</span><h2>Свойства документа</h2></div><span class="settings-chevron" aria-hidden="true">⌄</span></summary>
       <div class="settings-fields">
         <label><span>Пространство</span><select name="space_id" class="form-control">
           {{range .Spaces}}<option value="{{.ID}}" {{if eq $.Article.SpaceID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
@@ -99,7 +104,12 @@
         <label><span>Slug</span><input name="slug" value="{{.Article.Slug}}" placeholder="создастся автоматически" class="form-control" autocomplete="off"></label>
       </div>
       <div class="settings-note"><span aria-hidden="true">i</span><p>Изменения автоматически сохраняются как черновик. Публикация выполняется через проверку статуса.</p></div>
-    </aside>
+    </details>
+  </div>
+
+  <div class="editor-mobile-actions" aria-label="Действия с документом">
+    <a class="btn btn-secondary" href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">Отмена</a>
+    <button class="btn btn-primary" type="submit" data-save-button><span aria-hidden="true">✓</span> Сохранить</button>
   </div>
 </form>
 

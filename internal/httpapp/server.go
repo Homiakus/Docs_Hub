@@ -235,7 +235,7 @@ func (s *Server) Routes() http.Handler {
 	if s.cfg.RateLimit.Enabled {
 		r.Use(s.rateLimiter())
 	}
-	r.Handle("/static/*", http.FileServerFS(web.FS))
+	r.With(staticCacheHeaders).Handle("/static/*", http.FileServerFS(web.FS))
 	r.Get("/healthz", s.health)
 	r.Get("/login", s.loginForm)
 	r.With(s.loginRateLimiter()).Post("/login", s.login)
@@ -2893,10 +2893,17 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:;")
 		if s.cfg.TLS.Enabled || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func staticCacheHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
 		next.ServeHTTP(w, r)
 	})
 }

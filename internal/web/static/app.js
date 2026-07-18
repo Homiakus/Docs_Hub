@@ -3,27 +3,35 @@
   const navClose = document.querySelector('.mobile-nav-close');
   const sidepanel = document.querySelector('.sidepanel');
   const backdrop = document.querySelector('.mobile-backdrop');
-  const mobileNavigation = window.matchMedia('(max-width: 760px)');
+  const appMain = document.querySelector('.app-main');
+  const mobileNavigation = window.matchMedia('(max-width: 900px)');
   let navPreviousFocus = null;
 
   function setNavOpen(open) {
+    open = Boolean(open && mobileNavigation.matches);
     document.body.classList.toggle('nav-open', open);
     navToggle?.setAttribute('aria-expanded', String(open));
     if (sidepanel) sidepanel.inert = mobileNavigation.matches && !open;
+    if (appMain) appMain.inert = open;
     if (open) {
       navPreviousFocus = document.activeElement;
       navClose?.focus();
-    } else if (document.activeElement === navClose) {
-      navPreviousFocus?.focus();
+    } else if (navPreviousFocus instanceof HTMLElement) {
+      const target = navPreviousFocus;
+      navPreviousFocus = null;
+      window.requestAnimationFrame(() => target.focus());
     }
   }
   const syncNavigationMode = () => {
     if (!mobileNavigation.matches) {
+      navPreviousFocus = null;
       document.body.classList.remove('nav-open');
       navToggle?.setAttribute('aria-expanded', 'false');
       if (sidepanel) sidepanel.inert = false;
+      if (appMain) appMain.inert = false;
     } else if (!document.body.classList.contains('nav-open') && sidepanel) {
       sidepanel.inert = true;
+      if (appMain) appMain.inert = false;
     }
   };
   syncNavigationMode();
@@ -35,8 +43,26 @@
     if (event.target.closest('a,button[type="submit"]')) setNavOpen(false);
   });
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && document.body.classList.contains('nav-open')) setNavOpen(false);
+    if (!document.body.classList.contains('nav-open')) return;
+    if (event.key === 'Escape') { event.preventDefault(); setNavOpen(false); return; }
+    if (event.key !== 'Tab' || !sidepanel) return;
+    const focusable = Array.from(sidepanel.querySelectorAll('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)'))
+      .filter((element) => element instanceof HTMLElement && !element.hidden && element.getClientRects().length);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   });
+
+  const visualViewport = window.visualViewport;
+  const syncKeyboardOffset = () => {
+    const offset = visualViewport ? Math.max(0, window.innerHeight - visualViewport.height - visualViewport.offsetTop) : 0;
+    document.documentElement.style.setProperty('--keyboard-offset', `${Math.round(offset)}px`);
+  };
+  visualViewport?.addEventListener('resize', syncKeyboardOffset);
+  visualViewport?.addEventListener('scroll', syncKeyboardOffset);
+  syncKeyboardOffset();
 
   const themeToggle = document.getElementById('themeToggle');
   updateThemeIcon(document.documentElement.dataset.theme || 'light');
@@ -116,6 +142,31 @@
       }
     };
     const scheduleRender = debounce(render, 220);
+    const editorGrid = document.querySelector('.editorgrid');
+    const editPane = document.getElementById('editorPane');
+    const previewPane = document.getElementById('previewPane');
+    const paneButtons = Array.from(document.querySelectorAll('[data-editor-pane]'));
+    const mobileEditor = window.matchMedia('(max-width: 900px)');
+    const setEditorPane = (pane, focusPane = false) => {
+      const next = pane === 'preview' ? 'preview' : 'edit';
+      if (editorGrid) editorGrid.dataset.mobilePane = next;
+      paneButtons.forEach((button) => {
+        const selected = button.dataset.editorPane === next;
+        button.setAttribute('aria-selected', String(selected));
+        button.tabIndex = selected ? 0 : -1;
+      });
+      const isMobile = mobileEditor.matches;
+      if (editPane) editPane.hidden = isMobile && next !== 'edit';
+      if (previewPane) previewPane.hidden = isMobile && next !== 'preview';
+      if (focusPane) (next === 'preview' ? previewPane : editPane)?.focus?.({ preventScroll: true });
+    };
+    paneButtons.forEach((button) => button.addEventListener('click', async () => {
+      const pane = button.dataset.editorPane;
+      if (pane === 'preview') await render();
+      setEditorPane(pane);
+    }));
+    mobileEditor.addEventListener?.('change', () => setEditorPane(editorGrid?.dataset.mobilePane || 'edit'));
+    setEditorPane(editorGrid?.dataset.mobilePane || 'edit');
     editor.addEventListener('input', scheduleRender);
     picker?.addEventListener('click', () => fileInput?.click());
     fileInput?.addEventListener('change', () => {
@@ -162,9 +213,12 @@
   async function uploadFiles(files, targetEditor, render, dropzone) {
     const allowed = files.filter(isSupportedFile);
     if (!allowed.length) { showToast('Этот формат файла не поддерживается'); return; }
+    const progress = dropzone?.querySelector('p');
+    const progressDefault = progress?.textContent || '';
     dropzone?.classList.add('is-uploading');
     try {
-      for (const file of allowed) {
+      for (const [index, file] of allowed.entries()) {
+        if (progress) progress.textContent = `Загрузка ${index + 1} из ${allowed.length}: ${file.name}`;
         const form = new FormData();
         form.append('file', file);
         const response = await apiFetch(targetEditor.dataset.uploadEndpoint || '/api/uploads', { method: 'POST', body: form });
@@ -180,6 +234,7 @@
       showToast(error.message || 'Не удалось загрузить вложение');
     } finally {
       dropzone?.classList.remove('is-uploading');
+      if (progress) progress.textContent = progressDefault;
     }
   }
 

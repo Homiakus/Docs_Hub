@@ -1,21 +1,52 @@
 {{define "content"}}
 <div class="pdf-viewer-page page-stack">
   <header class="pagehead pdf-head">
-    <div><span class="eyebrow">PDF-вложение</span><h1>{{.PDFName}}</h1><p>Безопасный просмотр файла внутри базы знаний.</p></div>
-    <div class="pdf-actions">
-      <div class="pdf-pagination" role="group" aria-label="Навигация по страницам">
-        <button class="btn btn-secondary btn-sm" type="button" id="pdfPrevPage" aria-label="Предыдущая страница">←</button>
-        <label>Страница <input type="number" id="pdfPageInput" value="1" min="1" max="{{.PDFPageCount}}"> из <span id="pdfTotalPages">{{.PDFPageCount}}</span></label>
-        <button class="btn btn-secondary btn-sm" type="button" id="pdfNextPage" aria-label="Следующая страница">→</button>
-      </div>
-      <a class="btn btn-primary btn-sm" href="{{.PDFURL}}" download>Скачать PDF</a>
+    <div><span class="eyebrow">PDF-вложение</span><h1>{{.PDFName}}</h1><p>Полноценный просмотр, поиск и навигация без выхода из базы знаний.</p></div>
+    <div class="pdf-head-actions">
+      <a class="btn btn-secondary" href="{{.PDFURL}}" target="_blank" rel="noopener">Открыть оригинал</a>
+      <a class="btn btn-primary" href="{{.PDFURL}}" download>Скачать PDF</a>
     </div>
   </header>
 
-  <div class="pdf-viewer-container" id="pdfViewerContainer" data-total-pages="{{.PDFPageCount}}" data-pdf-url="{{.PDFURL}}">
-    <iframe id="pdfFrame" src="{{.PDFURL}}#page=1&view=FitH" title="PDF: {{.PDFName}}"></iframe>
-  </div>
-  <p class="pdf-fallback">Если файл не открылся, <a href="{{.PDFURL}}" target="_blank" rel="noopener">откройте его в новой вкладке</a>.</p>
+  <section class="pdf-workspace" id="pdfViewerContainer" data-total-pages="{{.PDFPageCount}}" data-pdf-url="{{.PDFURL}}" aria-label="Просмотр PDF" aria-busy="true">
+    <div class="pdf-toolbar">
+      <div class="pdf-pagination" role="group" aria-label="Навигация по страницам">
+        <button class="pdf-tool-button" type="button" id="pdfPrevPage" aria-label="Предыдущая страница">←</button>
+        <label>Страница <input type="number" id="pdfPageInput" value="1" min="1" max="{{.PDFPageCount}}" inputmode="numeric"> из <span id="pdfTotalPages">{{.PDFPageCount}}</span></label>
+        <button class="pdf-tool-button" type="button" id="pdfNextPage" aria-label="Следующая страница">→</button>
+      </div>
+
+      <div class="pdf-zoom" role="group" aria-label="Масштаб PDF">
+        <button class="pdf-tool-button" type="button" id="pdfZoomOut" aria-label="Уменьшить масштаб">−</button>
+        <button class="pdf-scale-button" type="button" id="pdfFitWidth" aria-label="Вписать страницу по ширине"><span id="pdfScaleLabel">По ширине</span></button>
+        <button class="pdf-tool-button" type="button" id="pdfZoomIn" aria-label="Увеличить масштаб">＋</button>
+      </div>
+
+      <form class="pdf-search" id="pdfSearchForm" role="search">
+        <label class="sr-only" for="pdfSearchInput">Найти текст в PDF</label>
+        <span aria-hidden="true">⌕</span>
+        <input type="search" id="pdfSearchInput" placeholder="Найти в PDF" autocomplete="off">
+        <button class="pdf-tool-button" type="submit" aria-label="Найти текст">Найти</button>
+        <button class="pdf-tool-button" type="button" id="pdfSearchNext" aria-label="Следующее совпадение" hidden>↓</button>
+      </form>
+      <p class="pdf-search-status" id="pdfSearchStatus" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="pdf-stage" id="pdfStage" tabindex="0" aria-label="Страница PDF">
+      <div class="pdf-loading" id="pdfLoading" role="status"><span aria-hidden="true"></span><p>Загружаем документ…</p></div>
+      <div class="pdf-page" id="pdfPage" hidden>
+        <canvas id="pdfCanvas"></canvas>
+        <div class="pdf-text-layer textLayer" id="pdfTextLayer"></div>
+      </div>
+      <div class="pdf-error" id="pdfError" role="alert" hidden>
+        <span aria-hidden="true">!</span>
+        <h2>Не удалось отобразить PDF</h2>
+        <p>Файл можно открыть встроенным просмотрщиком браузера или скачать.</p>
+        <a class="btn btn-primary" href="{{.PDFURL}}" target="_blank" rel="noopener">Открыть оригинал</a>
+      </div>
+    </div>
+  </section>
+  <p class="pdf-hint">Поиск выполняется локально в браузере. Используйте <kbd>Ctrl</kbd> + <kbd>F</kbd>, клавиши Page Up/Page Down или элементы панели.</p>
 </div>
-<script defer src="/static/js/pdf/pdf-viewer.js"></script>
+<script type="module" src="/static/js/pdf/pdf-viewer.js"></script>
 {{end}}

@@ -53,9 +53,9 @@ jobs:
         working-directory: tests/e2e
         run: npm ci
 
-      - name: Install Chromium
+      - name: Install Playwright browsers
         working-directory: tests/e2e
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Generate ephemeral UI test credentials
         run: |

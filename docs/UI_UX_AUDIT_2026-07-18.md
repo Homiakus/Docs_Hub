@@ -1,7 +1,8 @@
-# Docs_Hub UI/UX audit and redesign
+# Docs_Hub UI/UX audit, redesign and mobile hardening
 
 Date: 2026-07-18  
 Baseline commit: `8cc963577f60afaefa8e3b1a9b2b4d0a883c8692`
+Mobile follow-up baseline: `98b061855ceb309281c437f3b7b6cc477372fe06`
 
 ## Scope
 
@@ -52,6 +53,12 @@ The command palette and table builder lacked a modal dialog contract, focus cont
 
 The Playwright suite had no authenticated setup or deterministic data lifecycle, allowed up to ten axe violations, contained a search test without an assertion and referenced visual snapshots that were not present. CI ran Go and Docker checks only.
 
+## Mobile follow-up findings
+
+The redesigned shell was functionally responsive, but a second pass exposed a breakpoint cliff between 761 and 900 px. At iPad Mini width the desktop sidebar, two-pane editor and dense graph toolbar still competed for space. Several compact controls remained 25–40 px high, fixed viewport heights did not account for mobile browser chrome or safe areas, and the drawer did not fully isolate focus from the page.
+
+The editor also needed a mobile-specific interaction model: showing Markdown and preview together made both panes too narrow, settings consumed the full scroll path, and save actions disappeared when the virtual keyboard was open. The graph captured touch gestures too aggressively and could block vertical page scrolling. The PDF route still delegated interaction to an iframe, so navigation, search, zoom and failure handling varied by browser. Finally, all three nominal Playwright device projects used Chromium, leaving WebKit and Firefox behavior unverified.
+
 ## Redesign outcome
 
 | Area | Implemented change |
@@ -61,15 +68,16 @@ The Playwright suite had no authenticated setup or deterministic data lifecycle,
 | Dashboard | Role-aware metrics, draft continuation, review queue, recent documents, templates and graph entry point. |
 | Search | Working query/space/status filters with preserved control state and ACL/workflow-aware results. |
 | Reader | New reading layout, progress indicator, responsive TOC, metadata, document-specific edit action, workflow controls and version history. |
-| Editor | Split Markdown/preview canvas, templates, properties, word count, media/PDF dropzone and accessible formatting controls. |
+| Editor | Split desktop canvas plus a single-pane mobile mode, tabs for Markdown/preview, collapsible properties, touch-sized tools and a safe-area-aware sticky save bar. |
 | Autosave | Server ID adoption, URL replacement, hidden state synchronization, local recovery, sequential saves, explicit conflict UI and atomic lock checks. |
 | Workflow | Validated `draft → in_review → approved → published → archived` transitions with role checks, optimistic lock and audit event. |
 | Search index | Rebuilt the original contentless FTS5 table as an updateable index and synchronized derived tags, links, files and FTS in one transaction. |
-| PDF | Accepted/stored PDF files, associated them with article ACL, counted pages, generated viewer links and embedded the real file. |
-| Graph | Single renderer, layered/chunked layout, orthogonal directional edges, labels, pan/zoom/fit, status filter, search, legend and accessible list. |
+| PDF | Accepted/stored PDF files, associated them with article ACL and added a pinned PDF.js canvas viewer with page navigation, zoom, selectable text, local search and an explicit fallback. |
+| Graph | Single renderer, layered/chunked layout, orthogonal directional edges, labels, mouse/touch/keyboard pan and zoom, pinch gesture, status filter, search, legend and accessible list. |
 | Admin | Rebuilt users, categories, content, ACL, backups and import as responsive sections with filtering and destructive-action confirmation. |
-| Accessibility | Modal semantics, focus restoration/trapping, combobox/listbox keyboard model, live regions, reduced-motion and print modes. |
-| CI | Added authenticated functional Playwright scenarios at 1440, 768 and 390 px plus axe blocking checks and failure artifacts. |
+| Accessibility | Modal and drawer focus isolation/restoration, combobox/listbox keyboard model, live regions, 44 px coarse-pointer targets, improved light-theme contrast, reduced-motion and print modes. |
+| Responsive foundation | Unified the compact breakpoint at 900 px and added `100dvh`, safe-area insets, virtual-keyboard compensation, scroll containment and overflow-safe tables/carousels. |
+| CI | Added 45 authenticated functional checks across Chromium, Firefox and WebKit on desktop, iPad Mini and two mobile profiles, including landscape, WCAG 2.2 AA, touch-target and horizontal-overflow assertions. |
 
 ## Verification strategy
 
@@ -82,8 +90,10 @@ The redesign is protected by:
 - PDF upload/viewer tests;
 - reader draft-leak regression tests;
 - JavaScript syntax checks;
-- Playwright functional, responsive and accessibility checks in GitHub Actions.
+- Playwright functional, responsive and accessibility checks in GitHub Actions;
+- real canvas rendering of a structurally valid PDF fixture;
+- explicit assertions for drawer focus restoration, 44 px touch targets and absence of page-level horizontal overflow.
 
 ## Remaining enterprise work
 
-The embedded PDF viewer is functional and access-controlled, but OCR, per-page extraction and PDF full-text search remain separate roadmap work. OIDC, PostgreSQL/Redis and distributed storage are also outside this UI redesign and remain tracked in the enterprise roadmap.
+The browser PDF viewer is functional and access-controlled, but OCR, server-side per-page extraction and indexing PDF contents in global search remain separate roadmap work. OIDC, PostgreSQL/Redis and distributed storage are also outside this UI redesign and remain tracked in the enterprise roadmap.

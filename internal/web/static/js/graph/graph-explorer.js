@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   let transform = { x: 0, y: 0, scale: 1 };
   let canvasSize = { width: 1, height: 1 };
   let dragging = null;
+  let pinch = null;
+  const activePointers = new Map();
+  const compactGraph = window.matchMedia('(max-width: 900px)');
 
   const createSVG = (name, attrs = {}) => {
     const element = document.createElementNS(svgNS, name);
@@ -39,6 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function render() {
+    container.setAttribute('aria-busy', 'true');
     const graph = filteredData();
     if (!graph.nodes.length) {
       showMessage('graph-empty', 'Нет документов для выбранного фильтра.');
@@ -71,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     applySearch();
     updateStats(graph);
     renderAccessibleList(graph.nodes);
+    container.setAttribute('aria-busy', 'false');
   }
 
   function layeredLayout(nodes, links) {
@@ -200,14 +205,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!svg) return;
     const rect = container.getBoundingClientRect();
     const scale = Math.min((rect.width - 28) / canvasSize.width, (rect.height - 28) / canvasSize.height, 1.15);
-    transform.scale = Math.max(.18, scale);
+    transform.scale = Math.max(compactGraph.matches ? .48 : .3, scale);
     transform.x = (rect.width - canvasSize.width * transform.scale) / 2;
     transform.y = (rect.height - canvasSize.height * transform.scale) / 2;
     applyTransform();
   }
   function zoom(factor, centerX = container.clientWidth / 2, centerY = container.clientHeight / 2) {
     const previous = transform.scale;
-    const next = Math.min(2.4, Math.max(.16, previous * factor));
+    const next = Math.min(2.4, Math.max(compactGraph.matches ? .36 : .2, previous * factor));
     transform.x = centerX - ((centerX - transform.x) / previous) * next;
     transform.y = centerY - ((centerY - transform.y) / previous) * next;
     transform.scale = next;
@@ -217,16 +222,61 @@ document.addEventListener('DOMContentLoaded', async () => {
   function bindCanvasEvents() {
     svg.addEventListener('pointerdown', (event) => {
       if (event.target.closest('.graph-node')) return;
-      dragging = { x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y };
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
       svg.setPointerCapture(event.pointerId);
+      if (activePointers.size === 1) {
+        dragging = { pointerId: event.pointerId, pointerType: event.pointerType, x: event.clientX, y: event.clientY, tx: transform.x, ty: transform.y };
+        pinch = null;
+      } else if (activePointers.size === 2) {
+        const points = Array.from(activePointers.values());
+        const rect = container.getBoundingClientRect();
+        const centerX = (points[0].x + points[1].x) / 2 - rect.left;
+        const centerY = (points[0].y + points[1].y) / 2 - rect.top;
+        pinch = {
+          distance: Math.max(1, Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)),
+          scale: transform.scale,
+          worldX: (centerX - transform.x) / transform.scale,
+          worldY: (centerY - transform.y) / transform.scale,
+        };
+        dragging = null;
+      }
     });
     svg.addEventListener('pointermove', (event) => {
-      if (!dragging) return;
-      transform.x = dragging.tx + event.clientX - dragging.x;
-      transform.y = dragging.ty + event.clientY - dragging.y;
+      if (!activePointers.has(event.pointerId)) return;
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType });
+      if (activePointers.size >= 2 && pinch) {
+        const points = Array.from(activePointers.values()).slice(0, 2);
+        const rect = container.getBoundingClientRect();
+        const centerX = (points[0].x + points[1].x) / 2 - rect.left;
+        const centerY = (points[0].y + points[1].y) / 2 - rect.top;
+        const distance = Math.max(1, Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y));
+        const next = Math.min(2.4, Math.max(.32, pinch.scale * distance / pinch.distance));
+        transform.scale = next;
+        transform.x = centerX - pinch.worldX * next;
+        transform.y = centerY - pinch.worldY * next;
+      } else if (dragging?.pointerId === event.pointerId) {
+        const dx = event.clientX - dragging.x;
+        const dy = event.clientY - dragging.y;
+        if (dragging.pointerType === 'touch' && Math.abs(dy) > Math.abs(dx)) return;
+        transform.x = dragging.tx + dx;
+        transform.y = dragging.ty + dy;
+      } else {
+        return;
+      }
       applyTransform();
     });
-    const stop = () => { dragging = null; };
+    const stop = (event) => {
+      activePointers.delete(event.pointerId);
+      try { svg.releasePointerCapture(event.pointerId); } catch (_) {}
+      pinch = null;
+      const remaining = Array.from(activePointers.entries());
+      if (remaining.length === 1) {
+        const [pointerId, point] = remaining[0];
+        dragging = { pointerId, pointerType: point.type, x: point.x, y: point.y, tx: transform.x, ty: transform.y };
+      } else {
+        dragging = null;
+      }
+    };
     svg.addEventListener('pointerup', stop);
     svg.addEventListener('pointercancel', stop);
     svg.addEventListener('wheel', (event) => {
@@ -234,6 +284,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       const rect = container.getBoundingClientRect();
       zoom(event.deltaY < 0 ? 1.12 : .89, event.clientX - rect.left, event.clientY - rect.top);
     }, { passive: false });
+    container.onkeydown = (event) => {
+      const step = event.shiftKey ? 72 : 36;
+      if (event.key === '+' || event.key === '=') zoom(1.2);
+      else if (event.key === '-') zoom(.82);
+      else if (event.key === '0') fit();
+      else if (event.key === 'ArrowLeft') transform.x += step;
+      else if (event.key === 'ArrowRight') transform.x -= step;
+      else if (event.key === 'ArrowUp') transform.y += step;
+      else if (event.key === 'ArrowDown') transform.y -= step;
+      else return;
+      event.preventDefault();
+      applyTransform();
+    };
   }
 
   function applySearch() {
@@ -272,6 +335,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     paragraph.textContent = message;
     block.appendChild(paragraph);
     container.replaceChildren(block);
+    container.setAttribute('aria-busy', 'false');
   }
 
   searchInput?.addEventListener('input', applySearch);
@@ -279,5 +343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('graphFit')?.addEventListener('click', fit);
   document.getElementById('graphZoomIn')?.addEventListener('click', () => zoom(1.2));
   document.getElementById('graphZoomOut')?.addEventListener('click', () => zoom(.82));
-  window.addEventListener('resize', () => window.requestAnimationFrame(fit));
+  const resizeObserver = new ResizeObserver(() => window.requestAnimationFrame(fit));
+  resizeObserver.observe(container);
+  compactGraph.addEventListener?.('change', () => window.requestAnimationFrame(fit));
 });

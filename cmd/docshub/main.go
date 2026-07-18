@@ -20,7 +20,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/httpapp"
 )
 
-const Version = "v0.4.0-alpha.1"
+const Version = "v0.4.0-alpha.2"
 
 func main() {
 	if len(os.Args) > 1 {

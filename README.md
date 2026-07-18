@@ -2,7 +2,7 @@
 
 Docs_Hub — корпоративная база знаний на Go: пространства, полнотекстовый поиск, управляемый workflow документов, версии, вложения, PDF и граф связей.
 
-Текущая версия: **v0.4.0-alpha.1**
+Текущая версия: **v0.4.0-alpha.2**
 
 ## Что входит
 
@@ -50,13 +50,13 @@ go build ./cmd/docshub
 
 cd tests/e2e
 npm ci
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 export E2E_ADMIN_PASSWORD="$(openssl rand -hex 16)"
 export E2E_SESSION_SECRET="$(openssl rand -hex 32)"
 npm test
 ```
 
-CI дополнительно собирает Docker-образ и запускает Playwright на трёх размерах экрана с accessibility-проверками.
+CI дополнительно собирает Docker-образ и запускает Playwright в Chromium, Firefox и WebKit на desktop, tablet и mobile с accessibility-проверками.
 
 ## Документация
 
