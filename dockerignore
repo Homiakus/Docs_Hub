@@ -1,0 +1,29 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+.github/
+
+# IDE / OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime data
+/data/
+/tmp/
+*.log
+*.tmp
+*.swp
+
+# Local build artifacts
+/docshub
+/docshub.exe
+/coverage.out
+/coverage.html
