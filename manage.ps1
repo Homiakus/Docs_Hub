@@ -466,6 +466,9 @@ function Test-EnvConfiguration {
             if ($knownWeakPasswords -contains $password.ToLowerInvariant()) {
                 [void]$errors.Add("ADMIN_PASSWORD содержит известное слабое или шаблонное значение.")
             }
+            elseif ($password.Length -lt 8) {
+                [void]$errors.Add("ADMIN_PASSWORD должен содержать не менее 8 символов.")
+            }
             elseif ($password.Length -lt 12) {
                 [void]$warnings.Add("ADMIN_PASSWORD короче 12 символов.")
             }
