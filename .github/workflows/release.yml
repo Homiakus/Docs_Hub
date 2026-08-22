@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build & Publish Release Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Cross-Compile Binaries
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          
+          # Linux AMD64 & ARM64
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-linux-amd64 ./cmd/docshub
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-linux-arm64 ./cmd/docshub
+          
+          # Windows AMD64 & ARM64
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-windows-amd64.exe ./cmd/docshub
+          GOOS=windows GOARCH=arm64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-windows-arm64.exe ./cmd/docshub
+          
+          # macOS AMD64 & ARM64 (Apple Silicon)
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-darwin-amd64 ./cmd/docshub
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${TAG_NAME}" -o dist/docshub-darwin-arm64 ./cmd/docshub
+          
+          # Generate Checksums
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -21,3 +21,5 @@ docs_hub_upgrade_pack/
 minivault-enterprise
 docs-hub
 /docshub
+.serena/
+.DS_Store
