@@ -95,7 +95,6 @@ class DocumentAutosave {
 
   setState(nextState, message = '') {
     this.state = nextState;
-    if (!this.indicatorEl) return;
     const labels = {
       idle: '',
       dirty: 'Есть несохранённые изменения',
@@ -104,8 +103,12 @@ class DocumentAutosave {
       error: message || 'Копия сохранена локально',
       conflict: 'Обнаружен конфликт версий',
     };
-    this.indicatorEl.textContent = labels[nextState] || message;
-    this.indicatorEl.dataset.state = nextState;
+    const text = labels[nextState] || message;
+    if (this.indicatorEl) {
+      this.indicatorEl.textContent = text;
+      this.indicatorEl.dataset.state = nextState;
+    }
+    window.dispatchEvent(new CustomEvent('dh:autosave-state', { detail: { state: nextState, message: text } }));
   }
 
   performAutosave() {

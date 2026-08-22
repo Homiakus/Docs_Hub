@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const marker = createSVG('marker', { id: 'graphArrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto', markerUnits: 'strokeWidth' });
     marker.appendChild(createSVG('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'var(--border-strong)' }));
     const filter = createSVG('filter', { id: 'nodeShadow', x: '-20%', y: '-20%', width: '140%', height: '150%' });
-    filter.appendChild(createSVG('feDropShadow', { dx: 0, dy: 2, stdDeviation: 3, 'flood-color': '#111426', 'flood-opacity': '.10' }));
+    filter.appendChild(createSVG('feDropShadow', { dx: 0, dy: 2, stdDeviation: 3, 'flood-color': 'var(--text-primary)', 'flood-opacity': '.08' }));
     defs.append(marker, filter);
     svg.appendChild(defs);
     viewport = createSVG('g');

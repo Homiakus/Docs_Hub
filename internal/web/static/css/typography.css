@@ -1,61 +1,93 @@
-/* Typography System */
+/* Editorial & Neo-Swiss Typography System */
 
 body {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   color: var(--text-primary);
   background-color: var(--surface-canvas);
-  line-height: 1.6;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-code, pre, kbd, samp {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+code, pre, kbd, samp, .u-mono {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-feature-settings: "liga" 0, "calt" 0;
 }
 
-/* Type Scale Utility Classes */
+/* Monumental Display Scale */
+.text-display-giant {
+  font-family: var(--font-display);
+  font-size: clamp(3.2rem, 8vw, 6.5rem);
+  line-height: 0.90;
+  font-weight: 800;
+  letter-spacing: var(--tracking-tightest);
+}
+
 .text-display {
-  font-size: 2.25rem; /* 36px */
-  line-height: 1.2;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 5.5vw, 4.2rem);
+  line-height: 0.94;
+  font-weight: 750;
+  letter-spacing: var(--tracking-tight);
 }
 
 .text-page-title {
-  font-size: 1.875rem; /* 30px */
-  line-height: 1.25;
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.8vw, 2.75rem);
+  line-height: 1.05;
+  font-weight: 750;
+  letter-spacing: var(--tracking-tight);
+}
+
+.text-section-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2.2vw, 1.65rem);
+  line-height: 1.2;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 .text-document-title {
-  font-size: 1.5rem; /* 24px */
-  line-height: 1.3;
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: 1.15rem;
+  line-height: 1.35;
+  font-weight: 650;
   letter-spacing: -0.015em;
 }
 
-.text-section-title {
-  font-size: 1.25rem; /* 20px */
-  line-height: 1.4;
-  font-weight: 600;
-}
-
 .text-body {
-  font-size: 1rem; /* 16px */
+  font-size: 0.95rem;
   line-height: 1.6;
   font-weight: 400;
 }
 
+.text-body-editorial {
+  font-size: 1.05rem;
+  line-height: 1.75;
+  font-weight: 400;
+  max-width: 68ch;
+}
+
 .text-ui {
-  font-size: 0.875rem; /* 14px */
-  line-height: 1.43;
+  font-size: 0.84rem;
+  line-height: 1.4;
   font-weight: 500;
 }
 
 .text-meta {
-  font-size: 0.75rem; /* 12px */
-  line-height: 1.33;
-  font-weight: 400;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.text-micro {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
   color: var(--text-tertiary);
 }

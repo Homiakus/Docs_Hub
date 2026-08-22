@@ -1,0 +1,123 @@
+{{define "components/appearance_modal"}}
+<div class="dialog-overlay" id="appearanceModal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="appearanceModalTitle">
+  <div class="dialog-content appearance-dialog">
+    <header class="dialog-header">
+      <h2 class="dialog-title" id="appearanceModalTitle">Внешний вид и анимация</h2>
+      <button class="icon-button modal-close" type="button" id="closeAppearanceModal" aria-label="Закрыть настройки">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </header>
+
+    <div class="dialog-body">
+      <!-- 01. Theme Mode -->
+      <section class="appearance-section">
+        <span class="appearance-section-title">01 // Тема интерфейса</span>
+        <div class="theme-options-grid" role="radiogroup" aria-label="Тема интерфейса">
+          <button type="button" class="theme-option-card" data-theme-choice="system" role="radio" aria-checked="false">
+            <div class="theme-preview-box theme-preview-system">
+              <div class="preview-topbar"></div>
+              <div class="preview-body"><div class="preview-sidebar"></div><div class="preview-content"></div></div>
+            </div>
+            <span class="theme-card-label">Системная</span>
+          </button>
+          <button type="button" class="theme-option-card" data-theme-choice="light" role="radio" aria-checked="false">
+            <div class="theme-preview-box theme-preview-light">
+              <div class="preview-topbar"></div>
+              <div class="preview-body"><div class="preview-sidebar"></div><div class="preview-content"></div></div>
+            </div>
+            <span class="theme-card-label">Светлая</span>
+          </button>
+          <button type="button" class="theme-option-card" data-theme-choice="dark" role="radio" aria-checked="false">
+            <div class="theme-preview-box theme-preview-dark">
+              <div class="preview-topbar"></div>
+              <div class="preview-body"><div class="preview-sidebar"></div><div class="preview-content"></div></div>
+            </div>
+            <span class="theme-card-label">Тёмная</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 02. Accent Color -->
+      <section class="appearance-section">
+        <span class="appearance-section-title">02 // Цветовой акцент</span>
+        <div class="accent-swatches-grid" role="radiogroup" aria-label="Цветовой акцент">
+          <button type="button" class="accent-swatch-btn" data-accent-choice="indigo" role="radio" aria-checked="false" title="Indigo / Cobalt">
+            <span class="swatch-circle" style="background-color: #2152ff;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Indigo</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="blue" role="radio" aria-checked="false" title="Blue / Sapphire">
+            <span class="swatch-circle" style="background-color: #0066cc;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Blue</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="cyan" role="radio" aria-checked="false" title="Cyan / Teal">
+            <span class="swatch-circle" style="background-color: #00828a;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Cyan</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="emerald" role="radio" aria-checked="false" title="Emerald / Green">
+            <span class="swatch-circle" style="background-color: #0f766e;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Emerald</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="amber" role="radio" aria-checked="false" title="Amber / Gold">
+            <span class="swatch-circle" style="background-color: #b45309;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Amber</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="orange" role="radio" aria-checked="false" title="Orange / Tangerine">
+            <span class="swatch-circle" style="background-color: #c2410c;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Orange</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="crimson" role="radio" aria-checked="false" title="Crimson / Coral">
+            <span class="swatch-circle" style="background-color: #be123c;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Crimson</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="rose" role="radio" aria-checked="false" title="Rose / Magenta">
+            <span class="swatch-circle" style="background-color: #be185d;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Rose</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="violet" role="radio" aria-checked="false" title="Violet / Iris">
+            <span class="swatch-circle" style="background-color: #6d28d9;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Violet</span>
+          </button>
+          <button type="button" class="accent-swatch-btn" data-accent-choice="neutral" role="radio" aria-checked="false" title="Neutral / Graphite">
+            <span class="swatch-circle" style="background-color: #262930;"><svg class="icon icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <span class="swatch-name">Graphite</span>
+          </button>
+        </div>
+
+        <div class="custom-accent-row">
+          <input type="color" id="customAccentInput" class="custom-accent-picker" value="#2152ff" title="Пользовательский цвет">
+          <label for="customAccentInput" class="custom-accent-label">Свой акцентный цвет</label>
+          <span class="custom-accent-value" id="customAccentValue">#2152FF</span>
+        </div>
+      </section>
+
+      <!-- 03. Interface Density -->
+      <section class="appearance-section">
+        <span class="appearance-section-title">03 // Плотность интерфейса</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Плотность интерфейса">
+          <button type="button" class="segment-btn" data-density-choice="comfortable" role="radio" aria-checked="true">Комфортная</button>
+          <button type="button" class="segment-btn" data-density-choice="compact" role="radio" aria-checked="false">Компактная</button>
+        </div>
+      </section>
+
+      <!-- 04. Motion & Animations -->
+      <section class="appearance-section">
+        <span class="appearance-section-title">04 // Анимации и переходы</span>
+        <div class="segmented-control three-options" role="radiogroup" aria-label="Режим анимаций">
+          <button type="button" class="segment-btn" data-motion-choice="system" role="radio" aria-checked="true">Системный</button>
+          <button type="button" class="segment-btn" data-motion-choice="full" role="radio" aria-checked="false">Все эффекты</button>
+          <button type="button" class="segment-btn" data-motion-choice="reduced" role="radio" aria-checked="false">Минимум</button>
+        </div>
+      </section>
+
+      <div class="appearance-live-hint">
+        <svg class="icon icon-xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <span>Изменения применяются мгновенно и сохраняются на вашем устройстве.</span>
+      </div>
+    </div>
+
+    <footer class="dialog-footer">
+      <button class="btn btn-primary" type="button" id="doneAppearanceModal">Готово</button>
+    </footer>
+  </div>
+</div>
+{{end}}

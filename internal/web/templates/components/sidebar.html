@@ -4,31 +4,45 @@
   <div class="sidepanel-head">
     <a class="brand" href="/" aria-label="{{.SiteName}} — главная">
       <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
-      <span class="brand-copy"><strong>Docs Hub</strong><small>Knowledge workspace</small></span>
+      <span class="brand-copy"><strong>Docs Hub</strong><small>v0.4.0-alpha · 2026</small></span>
     </a>
-    <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть навигацию">×</button>
+    <button class="icon-button mobile-nav-close" type="button" aria-label="Закрыть навигацию">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
   </div>
 
   <nav class="side-nav" aria-label="Разделы">
     <section>
-      <h2>Рабочее пространство</h2>
+      <h2>01 // Навигация</h2>
       <a class="side-link {{if eq .CurrentPath "/"}}active{{end}}" href="/" {{if eq .CurrentPath "/"}}aria-current="page"{{end}}>
-        <span class="nav-icon" aria-hidden="true">⌂</span><span>Обзор</span>
+        <span class="nav-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </span>
+        <span>Обзор</span>
       </a>
       <a class="side-link {{if eq .CurrentPath "/search"}}active{{end}}" href="/search" {{if eq .CurrentPath "/search"}}aria-current="page"{{end}}>
-        <span class="nav-icon" aria-hidden="true">⌕</span><span>Поиск</span><kbd>⌘K</kbd>
+        <span class="nav-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </span>
+        <span>Поиск</span><kbd>⌘K</kbd>
       </a>
       <a class="side-link {{if eq .CurrentPath "/spaces"}}active{{end}}" href="/spaces" {{if eq .CurrentPath "/spaces"}}aria-current="page"{{end}}>
-        <span class="nav-icon" aria-hidden="true">▦</span><span>Пространства</span>
+        <span class="nav-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </span>
+        <span>Пространства</span>
       </a>
       <a class="side-link {{if eq .CurrentPath "/graph"}}active{{end}}" href="/graph" {{if eq .CurrentPath "/graph"}}aria-current="page"{{end}}>
-        <span class="nav-icon" aria-hidden="true">⌘</span><span>Граф знаний</span>
+        <span class="nav-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+        </span>
+        <span>Граф связей</span>
       </a>
     </section>
 
     {{if .Spaces}}
     <section class="nav-collection">
-      <div class="nav-section-head"><h2>Пространства</h2><a href="/spaces" aria-label="Все пространства">Все</a></div>
+      <div class="nav-section-head"><h2>02 // Пространства</h2><a href="/spaces" aria-label="Все пространства">Все</a></div>
       {{range .Spaces}}
       <a class="side-link subtle {{if eq $root.CurrentSpace.ID .ID}}active{{end}}" href="/spaces/{{.Slug}}">
         <span class="space-dot" aria-hidden="true"></span><span>{{.Name}}</span><em>{{.Count}}</em>
@@ -39,7 +53,7 @@
 
     {{if .Categories}}
     <section class="nav-collection categories-nav">
-      <h2>Категории</h2>
+      <h2>03 // Категории</h2>
       {{range .Categories}}
       <a class="side-link subtle" href="{{tagPath .Slug}}">
         <span class="nav-hash" aria-hidden="true">#</span><span>{{.Name}}</span><em>{{.Count}}</em>
@@ -52,15 +66,27 @@
   <div class="side-footer">
     {{if eq .User.Role "admin"}}
     <a class="side-link {{if eq .CurrentPath "/admin"}}active{{end}}" href="/admin">
-      <span class="nav-icon" aria-hidden="true">⚙</span><span>Управление</span>
+      <span class="nav-icon" aria-hidden="true">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </span>
+      <span>Управление</span>
     </a>
     {{end}}
-    <button class="side-link theme-toggle" id="themeToggle" type="button" aria-label="Переключить цветовую тему">
-      <span class="nav-icon theme-icon" aria-hidden="true">◐</span><span>Тема</span><em>Сменить</em>
+    <button class="side-link theme-toggle" id="themeToggle" type="button" aria-label="Открыть настройки оформления">
+      <span class="nav-icon theme-icon-wrap" aria-hidden="true">
+        <svg class="icon icon-sm theme-icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        <svg class="icon icon-sm theme-icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </span>
+      <span>Оформление</span><em>Тема / Цвет</em>
     </button>
     <form method="post" action="/logout">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <button class="side-link side-button" type="submit"><span class="nav-icon" aria-hidden="true">↪</span><span>Выйти</span><em>{{.User.Username}}</em></button>
+      <button class="side-link side-button" type="submit">
+        <span class="nav-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </span>
+        <span>Выйти</span><em>{{.User.Username}}</em>
+      </button>
     </form>
   </div>
 </aside>

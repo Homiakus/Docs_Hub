@@ -2,23 +2,61 @@
 <div class="dashboard page-stack">
   <header class="pagehead dashboard-hero">
     <div>
-      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Единая база знаний</span>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // База знаний команды</span>
       <h1>Добро пожаловать, {{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</h1>
-      <p>Документы, решения и рабочие процессы команды — в одном понятном пространстве.</p>
+      <p>Архитектура, регламенты, решения и операционный контекст в единой швейцарской системе координат.</p>
     </div>
-    {{if not (eq .User.Role "reader")}}<a class="btn btn-primary btn-lg" href="/new"><span aria-hidden="true">＋</span> Новый документ</a>{{end}}
+    {{if not (eq .User.Role "reader")}}
+    <a class="btn btn-primary btn-lg" href="/new">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Новый документ</span>
+    </a>
+    {{end}}
   </header>
 
   <section class="metric-grid" aria-label="Сводка базы знаний">
-    <article class="metric-card"><span class="metric-icon metric-blue" aria-hidden="true">≡</span><div><strong>{{len .RecentDocs}}</strong><span>Доступно сейчас</span></div></article>
-    <article class="metric-card"><span class="metric-icon metric-amber" aria-hidden="true">◷</span><div><strong>{{len .Drafts}}</strong><span>Мои черновики</span></div></article>
-    <article class="metric-card"><span class="metric-icon metric-violet" aria-hidden="true">✓</span><div><strong>{{len .ReviewQueue}}</strong><span>На проверке</span></div></article>
-    <article class="metric-card"><span class="metric-icon metric-green" aria-hidden="true">▦</span><div><strong>{{len .Spaces}}</strong><span>Пространств</span></div></article>
+    <article class="metric-card">
+      <span class="metric-index" aria-hidden="true">01</span>
+      <div>
+        <strong>{{len .RecentDocs}}</strong>
+        <span>Документов доступно</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <span class="metric-index" aria-hidden="true">02</span>
+      <div>
+        <strong>{{len .Drafts}}</strong>
+        <span>Моих черновиков</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <span class="metric-index" aria-hidden="true">03</span>
+      <div>
+        <strong>{{len .ReviewQueue}}</strong>
+        <span>На проверке</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <span class="metric-index" aria-hidden="true">04</span>
+      <div>
+        <strong>{{len .Spaces}}</strong>
+        <span>Пространств</span>
+      </div>
+    </article>
   </section>
 
   {{if .Query}}
   <section class="content-section">
-    <div class="section-heading"><div><span class="eyebrow">Быстрый поиск</span><h2>Результаты для «{{.Query}}»</h2></div><a href="/search?q={{.Query}}">Открыть фильтры →</a></div>
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">Результаты запроса</span>
+        <h2>Результаты для «{{.Query}}»</h2>
+      </div>
+      <a href="/search?q={{.Query}}">
+        <span>Открыть фильтры</span>
+        <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </a>
+    </div>
     <div class="document-list">
       {{range .Articles}}{{template "components/document_card" .}}{{else}}{{template "empty_search" .}}{{end}}
     </div>
@@ -28,16 +66,43 @@
     <div class="dashboard-main page-stack">
       {{if .Drafts}}
       <section class="content-section">
-        <div class="section-heading"><div><span class="eyebrow">В работе</span><h2>Продолжить редактирование</h2></div><a href="/search?status=draft">Все черновики →</a></div>
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">02 // В работе</span>
+            <h2>Продолжить редактирование</h2>
+          </div>
+          <a href="/search?status=draft">
+            <span>Все черновики</span>
+            <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
+        </div>
         <div class="document-list">{{range .Drafts}}{{template "components/document_card" .}}{{end}}</div>
       </section>
       {{end}}
 
       <section class="content-section">
-        <div class="section-heading"><div><span class="eyebrow">Последние изменения</span><h2>Недавние документы</h2></div><a href="/search">Все документы →</a></div>
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">03 // Лента документов</span>
+            <h2>Недавние изменения</h2>
+          </div>
+          <a href="/search">
+            <span>Все документы</span>
+            <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
+        </div>
         <div class="document-list">
           {{range .RecentDocs}}{{template "components/document_card" .}}{{else}}
-          <div class="empty-state"><span aria-hidden="true">◇</span><h3>Здесь появятся документы</h3><p>Создайте первый документ или выберите шаблон.</p>{{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new">Создать документ</a>{{end}}</div>
+          <div class="empty-state">
+            <span class="empty-icon" aria-hidden="true">
+              <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </span>
+            <h3>Здесь появятся документы</h3>
+            <p>Создайте первый документ или выберите инженерный шаблон.</p>
+            {{if not (eq .User.Role "reader")}}
+            <a class="btn btn-primary" href="/new">Создать документ</a>
+            {{end}}
+          </div>
           {{end}}
         </div>
       </section>
@@ -45,28 +110,76 @@
 
     <aside class="dashboard-aside page-stack" aria-label="Быстрые действия">
       <section class="side-card review-card">
-        <div class="side-card-head"><span class="side-card-icon" aria-hidden="true">✓</span><div><h2>Ожидают проверки</h2><p>{{len .ReviewQueue}} документов</p></div></div>
+        <div class="side-card-head">
+          <span class="side-card-icon" aria-hidden="true">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          </span>
+          <div>
+            <h2>На проверке</h2>
+            <p>{{len .ReviewQueue}} документов в очереди</p>
+          </div>
+        </div>
         <div class="compact-list">
           {{range .ReviewQueue}}
-          <a href="{{articlePath .Slug}}"><span>{{.Title}}</span><small>{{.SpaceName}}</small></a>
-          {{else}}<div class="compact-empty"><span aria-hidden="true">✓</span><p>Очередь пуста</p><small>Все документы обработаны</small></div>{{end}}
+          <a href="{{articlePath .Slug}}">
+            <span>{{.Title}}</span>
+            <small>{{.SpaceName}}</small>
+          </a>
+          {{else}}
+          <div class="compact-empty">
+            <span aria-hidden="true"><svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <p>Очередь чиста</p>
+            <small>Все документы обработаны</small>
+          </div>
+          {{end}}
         </div>
-        {{if .ReviewQueue}}<a class="btn btn-secondary btn-block" href="/search?status=in_review">Открыть очередь</a>{{end}}
+        {{if .ReviewQueue}}
+        <a class="btn btn-secondary btn-block" href="/search?status=in_review">
+          <span>Открыть очередь</span>
+          <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
+        {{end}}
       </section>
 
       {{if not (eq .User.Role "reader")}}
       <section class="side-card">
-        <div class="side-card-head"><span class="side-card-icon violet" aria-hidden="true">✦</span><div><h2>Создать из шаблона</h2><p>Готовые структуры документов</p></div></div>
+        <div class="side-card-head">
+          <span class="side-card-icon violet" aria-hidden="true">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </span>
+          <div>
+            <h2>Создать по шаблону</h2>
+            <p>Готовые инженерные структуры</p>
+          </div>
+        </div>
         <div class="template-shortcuts">
-          <a href="/new?template=sop"><span aria-hidden="true">▤</span><div><strong>Регламент SOP</strong><small>Процесс и контроль</small></div><b aria-hidden="true">›</b></a>
-          <a href="/new?template=incident-report"><span aria-hidden="true">⚑</span><div><strong>Отчёт по инциденту</strong><small>Причины и действия</small></div><b aria-hidden="true">›</b></a>
-          <a href="/new?template=meeting-notes"><span aria-hidden="true">☷</span><div><strong>Протокол встречи</strong><small>Решения и задачи</small></div><b aria-hidden="true">›</b></a>
+          <a href="/new?template=sop">
+            <span aria-hidden="true">01</span>
+            <div><strong>Регламент SOP</strong><small>Процесс и критерии качества</small></div>
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
+          <a href="/new?template=incident-report">
+            <span aria-hidden="true">02</span>
+            <div><strong>Отчёт по инциденту</strong><small>Postmortem и timeline</small></div>
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
+          <a href="/new?template=meeting-notes">
+            <span aria-hidden="true">03</span>
+            <div><strong>Протокол встречи</strong><small>Решения, контекст и задачи</small></div>
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </a>
         </div>
       </section>
       {{end}}
 
       <section class="side-card knowledge-card">
-        <span class="eyebrow">Связи</span><h2>Исследуйте базу как граф</h2><p>Находите связанные документы и пробелы в знаниях команды.</p><a class="btn btn-secondary btn-block" href="/graph">Открыть граф знаний →</a>
+        <span class="eyebrow">Связи // Graph</span>
+        <h2>Исследуйте базу как граф</h2>
+        <p>Находите связанные документы, кластеры и изолированные материалы команды.</p>
+        <a class="btn btn-secondary btn-block" href="/graph">
+          <span>Открыть граф связей</span>
+          <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </a>
       </section>
     </aside>
   </div>
@@ -75,5 +188,12 @@
 {{end}}
 
 {{define "empty_search"}}
-<div class="empty-state"><span aria-hidden="true">⌕</span><h3>Ничего не найдено</h3><p>Проверьте формулировку запроса или откройте расширенный поиск.</p><a class="btn btn-secondary" href="/search">Настроить фильтры</a></div>
+<div class="empty-state">
+  <span class="empty-icon" aria-hidden="true">
+    <svg class="icon icon-lg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+  </span>
+  <h3>Ничего не найдено</h3>
+  <p>Проверьте формулировку запроса или перейдите к расширенному поиску.</p>
+  <a class="btn btn-secondary" href="/search">Настроить фильтры</a>
+</div>
 {{end}}

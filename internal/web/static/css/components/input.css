@@ -1,28 +1,43 @@
-/* Form Inputs Component Styles */
+/* ==========================================================================
+   DOCS_HUB FORM INPUTS & CONTROLS
+   ========================================================================== */
 
 .form-control, .input-text, .select-text, .textarea-text {
   display: block;
   width: 100%;
   padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
   line-height: 1.5;
   color: var(--text-primary);
   background-color: var(--surface-primary);
-  background-clip: padding-box;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  min-height: 40px;
+  border-radius: var(--radius-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
+  min-height: 38px;
 }
 
 .form-control:focus, .input-text:focus, .select-text:focus, .textarea-text:focus {
   outline: none;
-  border-color: var(--action-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .form-control::placeholder {
   color: var(--text-tertiary);
+  font-family: var(--font-sans);
+}
+
+.form-control.is-invalid {
+  border-color: var(--status-danger);
+  box-shadow: 0 0 0 1px var(--status-danger);
+  animation: input-shake 0.3s var(--ease-out);
+}
+
+@keyframes input-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
 }
 
 .form-group {
@@ -32,7 +47,64 @@
 .form-label {
   display: block;
   margin-bottom: var(--space-1);
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   SWITCH TOGGLE
+   -------------------------------------------------------------------------- */
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  width: 36px;
+  height: 20px;
+  background-color: var(--surface-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  position: relative;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--text-primary);
+  border-radius: var(--radius-full);
+  transition: transform var(--transition-fast) var(--ease-spring), background-color var(--transition-fast);
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+  transform: translateX(16px);
+  background-color: var(--accent-contrast);
+}
+
+.toggle-switch input:focus-visible + .toggle-track {
+  box-shadow: var(--focus-ring);
 }

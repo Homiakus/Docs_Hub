@@ -1,16 +1,37 @@
 {{define "content"}}
 <div class="graph-page page-stack">
   <header class="pagehead">
-    <div><span class="eyebrow">Карта знаний</span><h1>Граф связей</h1><p>Исследуйте переходы между документами, пространства и изолированные материалы.</p></div>
-    <a class="btn btn-secondary" href="/search">Открыть список</a>
+    <div>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // Топология связей</span>
+      <h1>Граф знаний</h1>
+      <p>Исследуйте переходы между документами, кластеры пространств и изолированные материалы.</p>
+    </div>
+    <a class="btn btn-secondary" href="/search">
+      <span>Открыть список</span>
+      <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </a>
   </header>
 
   <section class="graph-shell" aria-labelledby="graphTitle">
     <div class="graph-toolbar">
-      <label class="graph-search"><span aria-hidden="true">⌕</span><span class="sr-only">Найти узел графа</span><input id="graphSearch" type="search" placeholder="Найти документ"></label>
-      <label><span class="sr-only">Фильтр по статусу</span><select id="graphStatus" class="form-control">
-        <option value="">Все статусы</option><option value="published">Опубликовано</option><option value="draft">Черновики</option><option value="in_review">На проверке</option><option value="approved">Одобрено</option><option value="archived">Архив</option>
-      </select></label>
+      <label class="graph-search">
+        <span class="graph-search-icon" aria-hidden="true">
+          <svg class="icon icon-xs" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </span>
+        <span class="sr-only">Найти узел графа</span>
+        <input id="graphSearch" type="search" placeholder="Поиск по узлам графа…">
+      </label>
+      <label>
+        <span class="sr-only">Фильтр по статусу</span>
+        <select id="graphStatus" class="form-control">
+          <option value="">Все статусы</option>
+          <option value="published">Опубликовано</option>
+          <option value="draft">Черновики</option>
+          <option value="in_review">На проверке</option>
+          <option value="approved">Одобрено</option>
+          <option value="archived">Архив</option>
+        </select>
+      </label>
       <div class="graph-toolbar-actions" role="group" aria-label="Масштаб графа">
         <button type="button" id="graphZoomOut" aria-label="Уменьшить масштаб">−</button>
         <button type="button" id="graphFit" aria-label="Показать граф целиком">Вписать</button>
@@ -20,13 +41,28 @@
     </div>
     <h2 class="sr-only" id="graphTitle">Интерактивная схема документов</h2>
     <div id="graph" class="graph" tabindex="0" aria-describedby="graphHelp">
-      <div class="graph-loading"><span aria-hidden="true"></span><p>Строим карту знаний…</p></div>
+      <div class="graph-loading">
+        <svg class="icon icon-md icon-spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/></svg>
+        <p>Строим карту знаний…</p>
+      </div>
     </div>
-    <p class="graph-help" id="graphHelp">Перемещайте карту мышью или одним пальцем по горизонтали. Сведите или разведите два пальца для масштаба; вертикальный жест прокручивает страницу. Клавиши со стрелками двигают карту, +/− меняют масштаб.</p>
-    <div class="graph-legend" aria-label="Легенда"><span><i class="published"></i>Опубликован</span><span><i class="draft"></i>Черновик</span><span><i class="in-review"></i>На проверке</span><span><i class="approved"></i>Одобрен</span><span><i class="archived"></i>Архив</span></div>
+    <p class="graph-help" id="graphHelp">Перемещайте карту мышью или жестом. Клавиши со стрелками двигают холст, +/− меняют масштаб.</p>
+    <div class="graph-legend" aria-label="Легенда">
+      <span><i class="published"></i>Опубликован</span>
+      <span><i class="draft"></i>Черновик</span>
+      <span><i class="in-review"></i>На проверке</span>
+      <span><i class="approved"></i>Одобрен</span>
+      <span><i class="archived"></i>Архив</span>
+    </div>
   </section>
 
-  <details class="graph-list-panel"><summary>Доступный список узлов</summary><div id="graphAccessibleList" class="graph-accessible-list"></div></details>
+  <details class="graph-list-panel">
+    <summary>
+      <span>02 // Доступный список узлов</span>
+      <svg class="icon icon-xs chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+    </summary>
+    <div id="graphAccessibleList" class="graph-accessible-list"></div>
+  </details>
 </div>
 <script>window.DOCSHUB_GRAPH_ENDPOINT='/api/graph';</script>
 <script defer src="/static/js/graph/graph-explorer.js"></script>

@@ -1,0 +1,348 @@
+/* ==========================================================================
+   DOCS_HUB APPEARANCE & MOTION SETTINGS MODAL
+   Theme (System/Light/Dark), 10 Accents + Custom Color, Density, Motion Modes
+   ========================================================================== */
+
+.appearance-dialog {
+  max-width: 580px;
+}
+
+.appearance-section {
+  margin-bottom: var(--space-6);
+}
+
+.appearance-section:last-child {
+  margin-bottom: 0;
+}
+
+.appearance-section-title {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-3);
+}
+
+/* --------------------------------------------------------------------------
+   01. THEME MODE CARDS (SYSTEM / LIGHT / DARK)
+   -------------------------------------------------------------------------- */
+.theme-options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.theme-option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.theme-option-card:hover {
+  border-color: var(--text-primary);
+  background-color: var(--surface-hover);
+  transform: translateY(-1px);
+}
+
+.theme-option-card[aria-checked="true"],
+.theme-option-card.selected {
+  border-color: var(--accent);
+  background-color: var(--accent-subtle);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.theme-preview-box {
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Light Theme Mini Preview */
+.theme-preview-light {
+  background: #f7f7f4;
+}
+.theme-preview-light .preview-topbar {
+  height: 12px;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(15, 17, 23, 0.08);
+}
+.theme-preview-light .preview-body {
+  flex: 1;
+  padding: 4px 6px;
+  display: flex;
+  gap: 4px;
+}
+.theme-preview-light .preview-sidebar {
+  width: 25%;
+  height: 100%;
+  background: #f0f0eb;
+  border-radius: 2px;
+}
+.theme-preview-light .preview-content {
+  flex: 1;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 2px;
+}
+
+/* Dark Theme Mini Preview */
+.theme-preview-dark {
+  background: #0c0d11;
+}
+.theme-preview-dark .preview-topbar {
+  height: 12px;
+  background: #13141a;
+  border-bottom: 1px solid rgba(242, 243, 247, 0.08);
+}
+.theme-preview-dark .preview-body {
+  flex: 1;
+  padding: 4px 6px;
+  display: flex;
+  gap: 4px;
+}
+.theme-preview-dark .preview-sidebar {
+  width: 25%;
+  height: 100%;
+  background: #191b23;
+  border-radius: 2px;
+}
+.theme-preview-dark .preview-content {
+  flex: 1;
+  height: 100%;
+  background: #13141a;
+  border-radius: 2px;
+}
+
+/* System Theme Mini Preview (Split) */
+.theme-preview-system {
+  background: linear-gradient(90deg, #f7f7f4 50%, #0c0d11 50%);
+}
+.theme-preview-system .preview-topbar {
+  height: 12px;
+  background: linear-gradient(90deg, #ffffff 50%, #13141a 50%);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.theme-preview-system .preview-body {
+  flex: 1;
+  padding: 4px 6px;
+  display: flex;
+  gap: 4px;
+}
+.theme-preview-system .preview-sidebar {
+  width: 25%;
+  height: 100%;
+  background: #f0f0eb;
+  border-radius: 2px;
+}
+.theme-preview-system .preview-content {
+  flex: 1;
+  height: 100%;
+  background: #13141a;
+  border-radius: 2px;
+}
+
+.theme-card-label {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* --------------------------------------------------------------------------
+   02. ACCENT COLOR SWATCHES (10 PRESETS + CUSTOM PICKER)
+   -------------------------------------------------------------------------- */
+.accent-swatches-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.accent-swatch-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-2) var(--space-1);
+  background: var(--surface-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-fast), background-color var(--transition-fast);
+}
+
+.accent-swatch-btn:hover {
+  border-color: var(--text-primary);
+  background-color: var(--surface-hover);
+  transform: translateY(-1px);
+}
+
+.accent-swatch-btn[aria-checked="true"],
+.accent-swatch-btn.selected {
+  border-color: var(--accent);
+  background-color: var(--accent-subtle);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.swatch-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform var(--transition-fast);
+}
+
+.accent-swatch-btn[aria-checked="true"] .swatch-circle {
+  transform: scale(1.1);
+}
+
+.swatch-circle .icon-check {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2px;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.accent-swatch-btn[aria-checked="true"] .swatch-circle .icon-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.swatch-name {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Custom Accent Color Input Row */
+.custom-accent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--surface-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.custom-accent-picker {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: transparent;
+}
+
+.custom-accent-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.custom-accent-picker::-webkit-color-swatch {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.custom-accent-label {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.custom-accent-value {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* --------------------------------------------------------------------------
+   03. DENSITY & MOTION TOGGLES (SEGMENTED CONTROLS)
+   -------------------------------------------------------------------------- */
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  padding: 3px;
+  background-color: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.segmented-control.three-options {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.segment-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0.45rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.segment-btn:hover {
+  color: var(--text-primary);
+}
+
+.segment-btn[aria-checked="true"],
+.segment-btn.selected {
+  color: var(--text-primary);
+  background-color: var(--surface-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+.appearance-live-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--accent-subtle);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.appearance-live-hint .icon {
+  color: var(--accent);
+}

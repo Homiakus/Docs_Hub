@@ -1,44 +1,94 @@
-/* Badge Component Styles */
+/* ==========================================================================
+   DOCS_HUB BADGES & CLASSIFICATION CHIPS
+   ========================================================================== */
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.33;
-  border-radius: var(--radius-full);
-  text-transform: capitalize;
+  padding: 2px 7px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: var(--tracking-micro);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
   white-space: nowrap;
+  border: 1px solid var(--border-subtle);
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .badge-published {
   background-color: var(--status-success-bg);
   color: var(--status-success);
-  border: 1px solid rgba(22, 163, 74, 0.2);
+  border-color: var(--status-success-border);
 }
 
 .badge-draft {
   background-color: var(--status-warning-bg);
   color: var(--status-warning);
-  border: 1px solid rgba(217, 119, 6, 0.2);
+  border-color: var(--status-warning-border);
 }
 
 .badge-in_review, .badge-in-review {
   background-color: var(--status-info-bg);
   color: var(--status-info);
-  border: 1px solid rgba(2, 132, 199, 0.2);
+  border-color: var(--status-info-border);
+}
+
+.badge-approved {
+  background-color: var(--status-violet-bg);
+  color: var(--status-violet);
+  border-color: var(--status-violet-border);
 }
 
 .badge-archived {
   background-color: var(--surface-secondary);
   color: var(--text-tertiary);
-  border: 1px solid var(--border-subtle);
+  border-color: var(--border-subtle);
 }
 
 .badge-danger, .badge-rejected {
   background-color: var(--status-danger-bg);
   color: var(--status-danger);
-  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-color: var(--status-danger-border);
+}
+
+.classification-chip, .category-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast), transform var(--transition-instant);
+}
+
+.tag-chip:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  transform: translateY(-1px);
 }

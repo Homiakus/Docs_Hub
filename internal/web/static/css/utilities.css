@@ -1,16 +1,18 @@
-/* Accessibility Utilities */
+/* Accessibility & Layout Utilities */
 
 .skip-link {
   position: absolute;
   top: -100px;
   left: 0;
-  background: var(--action-primary);
+  background: var(--text-primary);
   color: var(--text-inverse);
   padding: 0.75rem 1.25rem;
   z-index: 9999;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
   font-weight: 600;
   text-decoration: none;
-  border-radius: 0 0 var(--radius-md) 0;
+  border-radius: 0 0 var(--radius-sm) 0;
   transition: top var(--transition-fast);
 }
 
@@ -29,4 +31,26 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* Hairline Grid Dividers */
+.hairline-b { border-bottom: 1px solid var(--border-subtle); }
+.hairline-t { border-top: 1px solid var(--border-subtle); }
+.hairline-r { border-right: 1px solid var(--border-subtle); }
+.hairline-l { border-left: 1px solid var(--border-subtle); }
+
+/* Animation Utility */
+@keyframes editorialFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-reveal {
+  animation: editorialFadeIn var(--transition-editorial) both;
 }

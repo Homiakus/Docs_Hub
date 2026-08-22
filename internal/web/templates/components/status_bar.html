@@ -1,0 +1,30 @@
+{{define "components/status_bar"}}
+<footer class="app-status-bar" id="appStatusBar" role="status" aria-label="Состояние системы">
+  <div class="status-bar-left">
+    <div class="status-bar-item" id="networkStatusItem">
+      <span class="status-dot online" id="networkStatusDot" aria-hidden="true"></span>
+      <span id="networkStatusLabel">В сети</span>
+    </div>
+    <div class="status-bar-divider" aria-hidden="true"></div>
+    <div class="status-bar-item" id="syncStatusItem">
+      <svg class="icon icon-xs" id="syncStatusIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+      <span id="syncStatusLabel">Синхронизировано</span>
+    </div>
+  </div>
+
+  <div class="status-bar-center">
+    <div class="status-bar-item" id="contextualStatusItem">
+      <span id="contextualStatusText">{{if .Article.Title}}{{.Article.Title}} · v{{.Article.LockVersion}}{{else}}Docs Hub · 2026{{end}}</span>
+    </div>
+  </div>
+
+  <div class="status-bar-right">
+    <button class="status-bar-button" id="statusBarAppearanceTrigger" type="button" aria-label="Настройки внешнего вида и темы">
+      <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"/></svg>
+      <span>Тема и акцент</span>
+    </button>
+    <div class="status-bar-divider" aria-hidden="true"></div>
+    <span class="status-bar-item" title="Быстрый поиск"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+  </div>
+</footer>
+{{end}}

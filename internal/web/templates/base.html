@@ -1,14 +1,42 @@
 {{define "base"}}
 <!doctype html>
-<html lang="ru" data-theme="light">
+<html lang="ru" data-theme="light" data-accent="indigo" data-density="comfortable" data-motion="system">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f6f7fb">
+  <meta name="theme-color" content="#f7f7f4">
   <meta name="csrf-token" content="{{.CSRFToken}}">
   <title>{{.Title}} · {{.SiteName}}</title>
-  <script>document.documentElement.classList.add('js');try{document.documentElement.dataset.theme=localStorage.getItem('docs-hub-theme')||'light'}catch(e){}</script>
+  <script>
+    document.documentElement.classList.add('js');
+    (function() {
+      try {
+        const theme = localStorage.getItem('docs-hub-theme') || 'system';
+        const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+        document.documentElement.dataset.themePreference = theme;
+        
+        const accent = localStorage.getItem('docs-hub-accent') || 'indigo';
+        if (accent === 'custom') {
+          const customHex = localStorage.getItem('docs-hub-custom-accent') || '#2152ff';
+          document.documentElement.dataset.accent = 'custom';
+          document.documentElement.style.setProperty('--accent', customHex);
+        } else {
+          document.documentElement.dataset.accent = accent;
+        }
+
+        const density = localStorage.getItem('docs-hub-density') || 'comfortable';
+        document.documentElement.dataset.density = density;
+
+        const motion = localStorage.getItem('docs-hub-motion') || 'system';
+        document.documentElement.dataset.motion = motion;
+      } catch(e) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
   <script defer src="/static/app.js"></script>
   {{if .User}}<script defer src="/static/js/navigation/command-palette.js"></script>{{end}}
@@ -24,26 +52,43 @@
   <div class="app-shell">
     {{template "components/sidebar" .}}
     <div class="app-main">
+      <div class="offline-banner" id="offlineBanner" role="alert" aria-live="assertive">
+        <span>● Режим оффлайн: изменения сохраняются в локальном хранилище браузера</span>
+      </div>
+
       <header class="topbar">
         <button class="icon-button mobile-nav-toggle" type="button" aria-label="Открыть навигацию" aria-controls="mobile-navigation" aria-expanded="false">
           <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
         </button>
         <form class="global-search" action="/search" method="get" role="search">
           <label class="sr-only" for="globalSearch">Поиск по базе знаний</label>
-          <span class="global-search-icon" aria-hidden="true">⌕</span>
-          <input id="globalSearch" type="search" name="q" value="{{.Query}}" placeholder="Поиск по документам и тегам">
+          <span class="global-search-icon" aria-hidden="true">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          </span>
+          <input id="globalSearch" type="search" name="q" value="{{.Query}}" placeholder="Поиск по документам, тегам и PDF">
           <button class="shortcut-hint" id="commandPaletteButton" type="button" aria-label="Открыть быстрый поиск"><kbd>Ctrl</kbd><kbd>K</kbd></button>
         </form>
         <div class="top-actions">
-          <span class="presence-dot" aria-hidden="true"></span>
+          <button class="icon-button" id="topbarAppearanceTrigger" type="button" aria-label="Оформление и тема" title="Настройки оформления">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"/></svg>
+          </button>
+          <span class="status-dot online" id="topPresenceDot" aria-hidden="true" title="Система активна"></span>
           <span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span>
-          {{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new"><span aria-hidden="true">＋</span> Создать</a>{{end}}
+          {{if not (eq .User.Role "reader")}}
+          <a class="btn btn-primary" href="/new">
+            <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <span>Создать</span>
+          </a>
+          {{end}}
         </div>
       </header>
+
       <main class="layout" id="main-content" tabindex="-1">{{template "content" .}}</main>
+      {{template "components/status_bar" .}}
     </div>
   </div>
   <div class="mobile-backdrop" aria-hidden="true"></div>
+  {{template "components/appearance_modal" .}}
   {{else}}
   <main class="auth-shell" id="main-content">{{template "content" .}}</main>
   {{end}}

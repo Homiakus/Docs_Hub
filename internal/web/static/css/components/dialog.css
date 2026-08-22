@@ -1,11 +1,13 @@
-/* Modal Dialog & Overlay Component Styles */
+/* ==========================================================================
+   DOCS_HUB DIALOGS, MODALS & TOAST NOTIFICATIONS
+   ========================================================================== */
 
 .dialog-overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background-color: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(4px);
+  background-color: var(--surface-backdrop);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -22,20 +24,22 @@
 
 .dialog-content {
   background-color: var(--surface-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevated);
   width: 100%;
-  max-width: 540px;
+  max-width: 580px;
   max-height: 90vh;
   max-height: 90dvh;
   overflow-y: auto;
-  transform: scale(0.95);
-  transition: transform var(--transition-normal);
+  transform: translateY(12px) scale(0.98);
+  opacity: 0;
+  transition: transform var(--transition-editorial), opacity var(--transition-normal);
 }
 
 .dialog-overlay.open .dialog-content {
-  transform: scale(1);
+  transform: translateY(0) scale(1);
+  opacity: 1;
 }
 
 .dialog-header {
@@ -44,12 +48,16 @@
   justify-content: space-between;
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-secondary);
 }
 
 .dialog-title {
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .dialog-body {
@@ -66,32 +74,71 @@
   background-color: var(--surface-secondary);
 }
 
-/* Toast Notification Styles */
-.toast-container {
+/* --------------------------------------------------------------------------
+   CATEGORIZED TOAST NOTIFICATION SYSTEM
+   Categories: Success, Info, Warning, Error, Progress
+   -------------------------------------------------------------------------- */
+.toast-region, .toast-container {
   position: fixed;
-  bottom: max(var(--space-6), env(safe-area-inset-bottom));
+  bottom: max(var(--space-6), calc(var(--statusbar-height) + 12px), env(safe-area-inset-bottom));
   right: max(var(--space-6), env(safe-area-inset-right));
   z-index: 2000;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  pointer-events: none;
 }
 
 .toast {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background-color: var(--surface-raised);
-  color: var(--text-primary);
+  padding: 0.75rem 1.1rem;
+  background-color: var(--surface-contrast);
+  color: var(--text-inverse);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  font-size: 0.875rem;
-  animation: toast-in var(--transition-normal);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  line-height: 1.35;
+  pointer-events: auto;
+  min-width: 260px;
+  max-width: 420px;
 }
 
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(100%); }
-  to { opacity: 1; transform: translateY(0); }
+.toast .toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.toast-success .toast-icon { color: #4ec689; }
+.toast-warning .toast-icon { color: #f59e0b; }
+.toast-error .toast-icon { color: #f43f5e; }
+.toast-info .toast-icon { color: #3894ff; }
+.toast-progress .toast-icon { color: var(--accent); }
+
+.toast-message {
+  flex: 1;
+}
+
+.toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.toast-close:hover {
+  color: var(--text-inverse);
 }

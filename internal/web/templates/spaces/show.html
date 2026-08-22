@@ -2,12 +2,47 @@
 <div class="space-show page-stack">
   {{template "components/breadcrumb" .}}
   <header class="pagehead space-hero">
-    <div class="space-title"><span class="space-card-icon" aria-hidden="true">▦</span><div><span class="eyebrow">Пространство · {{.CurrentSpace.Count}} документов</span><h1>{{.CurrentSpace.Name}}</h1><p>{{.CurrentSpace.Description}}</p></div></div>
-    {{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new?space={{.CurrentSpace.ID}}">＋ Создать здесь</a>{{end}}
+    <div class="space-title">
+      <span class="space-card-icon" aria-hidden="true">
+        <svg class="icon icon-md" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </span>
+      <div>
+        <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> Пространство // {{.CurrentSpace.Count}} документов</span>
+        <h1>{{.CurrentSpace.Name}}</h1>
+        <p>{{.CurrentSpace.Description}}</p>
+      </div>
+    </div>
+    {{if not (eq .User.Role "reader")}}
+    <a class="btn btn-primary" href="/new?space={{.CurrentSpace.ID}}">
+      <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Создать здесь</span>
+    </a>
+    {{end}}
   </header>
   <section class="content-section">
-    <div class="section-heading"><div><span class="eyebrow">Содержимое</span><h2>Документы пространства</h2></div><a href="/search?space={{.CurrentSpace.Slug}}">Фильтровать →</a></div>
-    <div class="document-list">{{range .Articles}}{{template "components/document_card" .}}{{else}}<div class="empty-state"><span aria-hidden="true">◇</span><h3>Пока пусто</h3><p>Добавьте первый документ в это пространство.</p></div>{{end}}</div>
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">01 // Материалы</span>
+        <h2>Документы пространства</h2>
+      </div>
+      <a href="/search?space={{.CurrentSpace.Slug}}">
+        <span>Фильтровать</span>
+        <svg class="icon icon-xs" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </a>
+    </div>
+    <div class="document-list">
+      {{range .Articles}}
+      {{template "components/document_card" .}}
+      {{else}}
+      <div class="empty-state">
+        <span class="empty-icon" aria-hidden="true">
+          <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <h3>Пока пусто</h3>
+        <p>Добавьте первый документ в это пространство.</p>
+      </div>
+      {{end}}
+    </div>
   </section>
 </div>
 {{end}}

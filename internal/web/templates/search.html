@@ -1,14 +1,20 @@
 {{define "content"}}
 <div class="search-page page-stack">
   <header class="pagehead">
-    <div><span class="eyebrow">Поиск и навигация</span><h1>Найдите нужное за секунды</h1><p>Ищите по заголовкам, полному тексту, slug, категориям и тегам.</p></div>
+    <div>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // Индекс поиска</span>
+      <h1>Поиск по базе знаний</h1>
+      <p>Мгновенная фильтрация по заголовкам, полному тексту Markdown, slug, категориям и тегам.</p>
+    </div>
   </header>
 
   <form method="get" action="/search" class="search-panel" role="search">
     <div class="search-query-row">
       <label class="sr-only" for="searchQuery">Поисковый запрос</label>
-      <span aria-hidden="true">⌕</span>
-      <input id="searchQuery" type="search" name="q" value="{{.Query}}" placeholder="Например: архитектура API или #регламент" autofocus>
+      <span class="search-panel-icon" aria-hidden="true">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      </span>
+      <input id="searchQuery" type="search" name="q" value="{{.Query}}" placeholder="Например: архитектура API, ADR или #регламент" autofocus>
       <button type="submit" class="btn btn-primary">Найти</button>
     </div>
     <div class="filter-row">
@@ -30,12 +36,24 @@
 
   <section class="content-section search-results" aria-live="polite">
     <div class="section-heading">
-      <div><span class="eyebrow">Результаты</span><h2>{{if .Query}}По запросу «{{.Query}}»{{else}}Все доступные документы{{end}}</h2></div>
+      <div>
+        <span class="eyebrow">02 // Результаты выдачи</span>
+        <h2>{{if .Query}}По запросу «{{.Query}}»{{else}}Все доступные документы{{end}}</h2>
+      </div>
       <span class="result-count">{{len .Articles}} {{if eq (len .Articles) 1}}результат{{else}}результатов{{end}}</span>
     </div>
     <div class="document-list">
-      {{range .Articles}}{{template "components/document_card" .}}{{else}}
-      <div class="empty-state"><span aria-hidden="true">⌕</span><h3>Совпадений нет</h3><p>Попробуйте более короткий запрос, другой статус или пространство.</p><a class="btn btn-secondary" href="/search">Очистить поиск</a></div>
+      {{range .Articles}}
+      {{template "components/document_card" .}}
+      {{else}}
+      <div class="empty-state">
+        <span class="empty-icon" aria-hidden="true">
+          <svg class="icon icon-lg" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </span>
+        <h3>Совпадений нет</h3>
+        <p>Попробуйте более короткий запрос, другой статус или сбросьте фильтры пространств.</p>
+        <a class="btn btn-secondary" href="/search">Очистить поиск</a>
+      </div>
       {{end}}
     </div>
   </section>

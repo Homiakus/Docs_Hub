@@ -1,7 +1,12 @@
 {{define "components/attachment_card"}}
 <article class="attachment-card">
-  <span class="attachment-icon" aria-hidden="true">↧</span>
+  <span class="attachment-icon" aria-hidden="true">
+    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  </span>
   <div><h4>{{.OriginalName}}</h4><p>{{.SizeBytes}} байт · {{.MIME}}</p></div>
-  <a href="/uploads/{{.StorageKey}}" download class="btn btn-secondary btn-sm">Скачать</a>
+  <a href="/uploads/{{.StorageKey}}" download class="btn btn-secondary btn-sm">
+    <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span>Скачать</span>
+  </a>
 </article>
 {{end}}

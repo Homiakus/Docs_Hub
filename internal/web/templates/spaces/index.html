@@ -1,14 +1,42 @@
 {{define "content"}}
 <div class="spaces-page page-stack">
-  <header class="pagehead"><div><span class="eyebrow">Структура базы</span><h1>Пространства знаний</h1><p>Тематические области с собственным контекстом, документами и ответственными.</p></div>{{if not (eq .User.Role "reader")}}<a class="btn btn-primary" href="/new">＋ Новый документ</a>{{end}}</header>
+  <header class="pagehead">
+    <div>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // Пространства</span>
+      <h1>Пространства знаний</h1>
+      <p>Тематические домены с собственным контекстом, документами и ответственными.</p>
+    </div>
+    {{if not (eq .User.Role "reader")}}
+    <a class="btn btn-primary" href="/new">
+      <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Новый документ</span>
+    </a>
+    {{end}}
+  </header>
   <section class="space-grid" aria-label="Список пространств">
     {{range .Spaces}}
     <a class="space-card" href="/spaces/{{.Slug}}">
-      <span class="space-card-icon" aria-hidden="true">▦</span>
-      <div><h2>{{.Name}}</h2><p>{{if .Description}}{{.Description}}{{else}}Документы рабочего пространства{{end}}</p></div>
-      <footer><span>{{.Count}} документов</span><b aria-hidden="true">→</b></footer>
+      <span class="space-card-icon" aria-hidden="true">
+        <svg class="icon icon-md" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </span>
+      <div>
+        <h2>{{.Name}}</h2>
+        <p>{{if .Description}}{{.Description}}{{else}}Документы и регламенты рабочего пространства{{end}}</p>
+      </div>
+      <footer>
+        <span>{{.Count}} документов</span>
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </footer>
     </a>
-    {{else}}<div class="empty-state"><span aria-hidden="true">▦</span><h3>Пространств пока нет</h3><p>Создайте структуру базы в панели управления.</p></div>{{end}}
+    {{else}}
+    <div class="empty-state">
+      <span class="empty-icon" aria-hidden="true">
+        <svg class="icon icon-lg" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </span>
+      <h3>Пространств пока нет</h3>
+      <p>Создайте структуру базы в панели управления.</p>
+    </div>
+    {{end}}
   </section>
 </div>
 {{end}}

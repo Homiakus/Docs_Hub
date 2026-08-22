@@ -1,20 +1,42 @@
 {{define "content"}}
 <div class="auth-layout">
   <section class="auth-brand-panel" aria-label="О продукте">
-    <a class="brand auth-brand" href="/login"><span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span><span class="brand-copy"><strong>Docs Hub</strong><small>Knowledge workspace</small></span></a>
-    <div class="auth-message"><span class="eyebrow">Знания работают вместе с командой</span><h1>Единое место для решений, процессов и контекста.</h1><p>Создавайте документы, проводите проверку и связывайте знания без хаоса в файлах и чатах.</p></div>
-    <div class="auth-proof"><span aria-hidden="true">✓</span><p><strong>Защищённое рабочее пространство</strong><small>Роли, права доступа и история изменений</small></p></div>
+    <a class="brand auth-brand" href="/login">
+      <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="brand-copy"><strong>Docs Hub</strong><small>v0.4.0-alpha · 2026</small></span>
+    </a>
+    <div class="auth-message">
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // Architectural Knowledge Base</span>
+      <h1>Единое пространство решений, контекста и процессов.</h1>
+      <p>Создавайте документы, проводите рецензирование и связывайте базу знаний команды без хаоса в чатах и файлах.</p>
+    </div>
+    <div class="auth-proof">
+      <span class="auth-proof-icon" aria-hidden="true">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+      </span>
+      <p><strong>Защищённая среда знаний</strong><small>Роли, права доступа, аудит и версионирование</small></p>
+    </div>
   </section>
   <section class="auth-form-panel">
     <div class="login-card">
-      <span class="eyebrow">С возвращением</span><h2>Войдите в Docs Hub</h2><p>Используйте корпоративную учётную запись.</p>
-      {{if .Error}}<div class="error" role="alert"><span aria-hidden="true">!</span>{{.Error}}</div>{{end}}
+      <span class="eyebrow">02 // Аутентификация</span>
+      <h2>Вход в систему</h2>
+      <p>Используйте корпоративную учётную запись.</p>
+      {{if .Error}}
+      <div class="error" role="alert">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>{{.Error}}</span>
+      </div>
+      {{end}}
       <form method="post" action="/login" class="login-form">
-        <label for="loginUsername"><span>Логин</span><input class="form-control" id="loginUsername" name="username" autocomplete="username" autofocus required placeholder="name@company"></label>
-        <label for="loginPassword"><span>Пароль</span><input class="form-control" id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Введите пароль"></label>
-        <button class="btn btn-primary btn-lg btn-block" type="submit">Войти <span aria-hidden="true">→</span></button>
+        <label for="loginUsername"><span>Логин</span><input class="form-control" id="loginUsername" name="username" autocomplete="username" autofocus required placeholder="username или email"></label>
+        <label for="loginPassword"><span>Пароль</span><input class="form-control" id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="••••••••"></label>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">
+          <span>Войти в рабочее пространство</span>
+          <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
       </form>
-      <p class="login-help">Проблемы со входом? Обратитесь к администратору пространства.</p>
+      <p class="login-help">Docs Hub Next · Архитектурная база знаний команды</p>
     </div>
   </section>
 </div>

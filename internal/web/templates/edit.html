@@ -5,20 +5,45 @@
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
   <header class="editor-head">
-    <div class="editor-breadcrumb"><a href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">← Назад</a><span aria-hidden="true">/</span><span>{{if .Article.ID}}Редактирование{{else}}Новый документ{{end}}</span></div>
+    <div class="editor-breadcrumb">
+      <a href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span>Назад</span>
+      </a>
+      <span aria-hidden="true" class="breadcrumb-slash">/</span>
+      <span>{{if .Article.ID}}Редактирование{{else}}Новый документ{{end}}</span>
+    </div>
     <div class="editor-status" id="autosaveIndicator" role="status" aria-live="polite"></div>
     <div class="editor-head-actions">
       <a class="btn btn-ghost" href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">Отмена</a>
-      <button class="btn btn-primary" type="submit" data-save-button><span aria-hidden="true">✓</span> Сохранить</button>
+      <button class="btn btn-primary" type="submit" data-save-button>
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+        <span>Сохранить</span>
+      </button>
     </div>
   </header>
 
   {{if .Templates}}
   <section class="template-picker" aria-labelledby="templatePickerTitle">
-    <div><span class="eyebrow">Быстрый старт</span><h2 id="templatePickerTitle">Выберите структуру документа</h2></div>
+    <div>
+      <span class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span> 01 // Шаблоны структуры</span>
+      <h2 id="templatePickerTitle">Выберите шаблон или начните с чистой страницы</h2>
+    </div>
     <div class="template-picker-grid">
-      <a href="/new" class="template-option {{if not .TemplateID}}selected{{end}}"><span aria-hidden="true">◇</span><div><strong>Чистый документ</strong><small>Начать с пустой страницы</small></div></a>
-      {{range .Templates}}<a href="/new?template={{.ID}}" class="template-option {{if eq $.TemplateID .ID}}selected{{end}}"><span aria-hidden="true">✦</span><div><strong>{{.Title}}</strong><small>{{.Description}}</small></div></a>{{end}}
+      <a href="/new" class="template-option {{if not .TemplateID}}selected{{end}}">
+        <span class="template-option-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <div><strong>Чистый документ</strong><small>Пустая страница Markdown</small></div>
+      </a>
+      {{range .Templates}}
+      <a href="/new?template={{.ID}}" class="template-option {{if eq $.TemplateID .ID}}selected{{end}}">
+        <span class="template-option-icon" aria-hidden="true">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </span>
+        <div><strong>{{.Title}}</strong><small>{{.Description}}</small></div>
+      </a>
+      {{end}}
     </div>
   </section>
   {{end}}
@@ -27,7 +52,7 @@
     <section class="editor-canvas" aria-label="Редактор документа">
       <div class="title-field">
         <label class="sr-only" id="editorTitleLabel" for="articleTitle">Заголовок документа</label>
-        <input name="title" id="articleTitle" value="{{.Article.Title}}" placeholder="Название документа" required maxlength="180" autocomplete="off">
+        <input name="title" id="articleTitle" value="{{.Article.Title}}" placeholder="Название документа…" required maxlength="180" autocomplete="off">
         <span class="badge badge-{{.Article.Status}}">{{statusLabel .Article.Status}}</span>
       </div>
 
@@ -40,13 +65,21 @@
         <div class="toolbar-group" role="group" aria-label="Структура">
           <button type="button" data-editor-action="h2" title="Заголовок второго уровня">H2</button>
           <button type="button" data-editor-action="h3" title="Заголовок третьего уровня">H3</button>
-          <button type="button" data-editor-action="list" title="Маркированный список">☷</button>
-          <button type="button" data-editor-action="quote" title="Цитата">❞</button>
+          <button type="button" data-editor-action="list" title="Маркированный список">
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
+          <button type="button" data-editor-action="quote" title="Цитата">
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 0 4-1 6-1 8zm14 0c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 0 4-1 6-1 8z"/></svg>
+          </button>
         </div>
         <div class="toolbar-group" role="group" aria-label="Вставка">
           <button type="button" data-editor-action="codeblock" title="Блок кода">{ }</button>
-          <button type="button" data-editor-action="table" title="Таблица">▦</button>
-          <button type="button" data-editor-action="mermaid" title="Диаграмма Mermaid">⌘</button>
+          <button type="button" data-editor-action="table" title="Таблица">
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+          </button>
+          <button type="button" data-editor-action="mermaid" title="Диаграмма Mermaid">
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.59 8.59l6.82 6.82"/></svg>
+          </button>
         </div>
         <span class="toolbar-help">Markdown · <kbd>Ctrl</kbd> + <kbd>S</kbd></span>
       </div>
@@ -58,26 +91,31 @@
 
       <div class="editorgrid" data-mobile-pane="edit">
         <div class="editor-pane" id="editorPane" role="tabpanel" aria-labelledby="editorTabEdit">
-          <div class="pane-label"><span>Markdown</span><small id="editorWordCount">0 слов</small></div>
+          <div class="pane-label"><span>Markdown Canvas</span><small id="editorWordCount">0 слов</small></div>
           <label class="sr-only" for="content">Текст документа в Markdown</label>
-          <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Используйте Markdown или панель форматирования…">{{.Article.Content}}</textarea>
+          <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Поддерживается полный Markdown, таблицы, диаграммы и wiki-ссылки…">{{.Article.Content}}</textarea>
         </div>
         <div class="preview-pane" id="previewPane" role="tabpanel" aria-labelledby="editorTabPreview">
-          <div class="pane-label"><span>Предпросмотр</span><small>Обновляется автоматически</small></div>
+          <div class="pane-label"><span>Live Preview</span><small>Синхронизируется на лету</small></div>
           <div id="preview" class="markdown preview" aria-live="polite"></div>
         </div>
       </div>
 
       <div class="dropzone" id="dropzone" aria-live="polite">
         <input type="file" id="mediaInput" accept="image/*,audio/*,video/*,application/pdf,.pdf" multiple hidden>
-        <span class="dropzone-icon" aria-hidden="true">⇧</span>
-        <div><strong>Добавьте вложения</strong><p>Перетащите файлы сюда или выберите изображения, медиа и PDF до 64 МБ.</p></div>
+        <span class="dropzone-icon" aria-hidden="true">
+          <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </span>
+        <div><strong>Вложения и медиа</strong><p>Перетащите файлы сюда или выберите изображения, медиа и PDF до 64 МБ.</p></div>
         <button class="btn btn-secondary btn-sm" type="button" id="mediaPicker">Выбрать файлы</button>
       </div>
     </section>
 
     <details class="editor-settings" aria-label="Настройки документа" open>
-      <summary class="settings-head"><div><span class="eyebrow">Параметры</span><h2>Свойства документа</h2></div><span class="settings-chevron" aria-hidden="true">⌄</span></summary>
+      <summary class="settings-head">
+        <div><span class="eyebrow">Параметры</span><h2>Свойства документа</h2></div>
+        <svg class="icon icon-xs chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
       <div class="settings-fields">
         <label><span>Пространство</span><select name="space_id" class="form-control">
           {{range .Spaces}}<option value="{{.ID}}" {{if eq $.Article.SpaceID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
@@ -101,15 +139,21 @@
           <option value="ru" {{if eq .Article.Language "ru"}}selected{{end}}>Русский</option>
           <option value="en" {{if eq .Article.Language "en"}}selected{{end}}>English</option>
         </select></label>
-        <label><span>Slug</span><input name="slug" value="{{.Article.Slug}}" placeholder="создастся автоматически" class="form-control" autocomplete="off"></label>
+        <label><span>Slug</span><input name="slug" value="{{.Article.Slug}}" placeholder="автоматически" class="form-control" autocomplete="off"></label>
       </div>
-      <div class="settings-note"><span aria-hidden="true">i</span><p>Изменения автоматически сохраняются как черновик. Публикация выполняется через проверку статуса.</p></div>
+      <div class="settings-note">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <p>Черновик сохраняется автоматически. Публикация доступна через процесс ревью.</p>
+      </div>
     </details>
   </div>
 
   <div class="editor-mobile-actions" aria-label="Действия с документом">
     <a class="btn btn-secondary" href="{{if .Article.ID}}{{articlePath .Article.Slug}}{{else}}/{{end}}">Отмена</a>
-    <button class="btn btn-primary" type="submit" data-save-button><span aria-hidden="true">✓</span> Сохранить</button>
+    <button class="btn btn-primary" type="submit" data-save-button>
+      <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+      <span>Сохранить</span>
+    </button>
   </div>
 </form>
 

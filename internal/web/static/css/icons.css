@@ -1,0 +1,162 @@
+/* ==========================================================================
+   DOCS_HUB UNIFIED STROKE ICON SYSTEM
+   Consistent 20x20 / 16x16 geometry, 1.75px stroke, contextual motion
+   ========================================================================== */
+
+.icon, svg.icon {
+  display: inline-block;
+  width: 1.125rem;
+  height: 1.125rem;
+  stroke-width: 1.75px;
+  stroke: currentColor;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+  vertical-align: middle;
+  transition: transform var(--transition-fast), stroke var(--transition-fast), opacity var(--transition-fast);
+}
+
+/* Icon Sizing Scale */
+.icon-xs { width: 0.8125rem; height: 0.8125rem; stroke-width: 1.75px; }
+.icon-sm { width: 0.9375rem; height: 0.9375rem; stroke-width: 1.75px; }
+.icon-md { width: 1.125rem; height: 1.125rem; stroke-width: 1.75px; }
+.icon-lg { width: 1.375rem; height: 1.375rem; stroke-width: 1.75px; }
+.icon-xl { width: 1.75rem; height: 1.75rem; stroke-width: 1.75px; }
+
+/* In-Button and In-Badge Alignment */
+.btn .icon, .side-link .icon, .badge .icon, .metric-card .icon {
+  margin-right: 0;
+}
+
+/* --------------------------------------------------------------------------
+   ICON MOTION PRIMITIVES & CONTEXTUAL ANIMATIONS
+   -------------------------------------------------------------------------- */
+
+/* 1. Controlled Rotation (Syncing / Loading) */
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.icon-spin, .is-syncing .icon-sync, .is-loading .icon-spinner {
+  animation: icon-spin 1.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  transform-origin: center;
+}
+
+/* 2. Single Controlled Turn on Trigger */
+@keyframes icon-spin-once {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.icon-spin-once, .btn:active .icon-refresh {
+  animation: icon-spin-once var(--motion-medium) var(--ease-out);
+}
+
+/* 3. Subtle Attention Pulse */
+@keyframes icon-attention-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.85; }
+}
+
+.icon-attention {
+  animation: icon-attention-pulse 1.8s var(--ease-in-out) infinite;
+}
+
+/* 4. Stroke Draw-in for Checkmarks */
+@keyframes stroke-draw {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+.icon-check-animated path,
+.is-success .icon-check path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+  animation: stroke-draw var(--motion-base) var(--ease-out) forwards;
+}
+
+/* 5. Chevron Rotation on Details & Menus */
+.chevron-icon {
+  transition: transform var(--transition-normal);
+  transform-origin: center;
+}
+
+details[open] > summary .chevron-icon,
+[aria-expanded="true"] .chevron-icon {
+  transform: rotate(180deg);
+}
+
+details[open] > summary .chevron-icon-right,
+[aria-expanded="true"] .chevron-icon-right {
+  transform: rotate(90deg);
+}
+
+/* 6. Theme Toggle Moon/Sun Animation */
+.theme-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.theme-icon-wrap svg {
+  transition: transform var(--transition-editorial), opacity var(--transition-fast);
+  transform-origin: center;
+}
+
+[data-theme="light"] .theme-icon-sun {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+[data-theme="light"] .theme-icon-moon {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.6);
+  position: absolute;
+}
+
+[data-theme="dark"] .theme-icon-sun {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.6);
+  position: absolute;
+}
+[data-theme="dark"] .theme-icon-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+/* 7. Brand Mark Signature */
+.brand-mark {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 3px);
+  gap: 2.5px;
+  height: 14px;
+  align-items: center;
+}
+
+.brand-mark span {
+  display: block;
+  width: 3px;
+  height: 100%;
+  background: var(--text-primary);
+  border-radius: 1px;
+  transition: height var(--transition-fast), background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.brand-mark span:nth-child(1) { height: 70%; }
+.brand-mark span:nth-child(2) { height: 100%; background: var(--accent); }
+.brand-mark span:nth-child(3) { height: 45%; }
+
+.brand:hover .brand-mark span:nth-child(1) { height: 100%; }
+.brand:hover .brand-mark span:nth-child(2) { height: 60%; }
+.brand:hover .brand-mark span:nth-child(3) { height: 90%; }
+
+/* 8. Upload Dropzone Icon Hover */
+.dropzone:hover .dropzone-icon svg,
+.dropzone.is-dragging .dropzone-icon svg {
+  transform: translateY(-3px);
+  stroke: var(--accent);
+}
