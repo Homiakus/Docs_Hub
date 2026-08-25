@@ -40,15 +40,30 @@ random_hex(){
 shell_quote(){ local s="$1"; s=${s//\'/\'"\'"\'}; printf "'%s'" "$s"; }
 
 env_get(){
-  local key="$1"; [[ -f "$ENV_FILE" ]] || return 0
-  awk -F= -v k="$key" '$1==k {sub(/^[^=]*=/, ""); gsub(/^\047|\047$/, ""); print; exit}' "$ENV_FILE"
+  local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 0
+  (
+    set +u
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    printf '%s' "${!key-}"
+  )
 }
 
 validate_port(){ [[ "$1" =~ ^[0-9]+$ ]] && (( 1 <= 10#$1 && 10#$1 <= 65535 )); }
 
 required_go_version(){ awk '$1=="go" {print $2; exit}' "$ROOT/go.mod"; }
 go_version(){ go env GOVERSION 2>/dev/null | sed 's/^go//'; }
-version_ge(){ local have="$1" need="$2"; [[ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1)" == "$need" ]]; }
+
+version_ge(){
+  local have="${1%%[^0-9.]*}" need="${2%%[^0-9.]*}"
+  local h1=0 h2=0 h3=0 n1=0 n2=0 n3=0
+  IFS=. read -r h1 h2 h3 <<<"$have"
+  IFS=. read -r n1 n2 n3 <<<"$need"
+  h1=${h1:-0}; h2=${h2:-0}; h3=${h3:-0}
+  n1=${n1:-0}; n2=${n2:-0}; n3=${n3:-0}
+  (( h1 > n1 || (h1 == n1 && (h2 > n2 || (h2 == n2 && h3 >= n3))) ))
+}
 
 check_go(){
   command -v go >/dev/null 2>&1 || die "Go is not installed. Install Go $(required_go_version)+ and retry."
@@ -67,7 +82,14 @@ lan_ip(){
 }
 
 pid_value(){ [[ -f "$PID_FILE" ]] && tr -dc '0-9' < "$PID_FILE"; }
-is_running(){ local p; p="$(pid_value || true)"; [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null; }
+is_running(){
+  local p cmd
+  p="$(pid_value || true)"
+  [[ -n "$p" ]] || return 1
+  kill -0 "$p" 2>/dev/null || return 1
+  cmd="$(ps -p "$p" -o command= 2>/dev/null || true)"
+  [[ "$cmd" == *"$BIN"* || "$cmd" == *"docshub-native"* ]]
+}
 
 load_env(){
   [[ -f "$ENV_FILE" ]] || die ".env.native is missing. Configure native mode first."
@@ -156,7 +178,7 @@ test_app(){ check_go; info "Running Go tests..."; (cd "$ROOT" && go test ./...);
 wait_health(){
   info "Waiting for healthcheck..."
   local i
-  for i in $(seq 1 30); do curl -fsS --max-time 3 "$(local_url)/healthz" >/dev/null 2>&1 && { ok "Healthcheck: healthy"; return 0; }; sleep 1; done
+  for i in $(seq 1 30); do "$BIN" healthcheck --url="$(local_url)/healthz" >/dev/null 2>&1 && { ok "Healthcheck: healthy"; return 0; }; sleep 1; done
   warn "Healthcheck failed. Last log lines:"; tail -n 80 "$LOG_FILE" 2>/dev/null || true; return 1
 }
 
@@ -168,7 +190,11 @@ start(){
   rm -f "$PID_FILE"
   load_env
   info "Starting native Docs Hub..."
-  (cd "$ROOT" && nohup "$BIN" >> "$LOG_FILE" 2>&1 & echo $! > "$PID_FILE")
+  (
+    cd "$ROOT"
+    nohup "$BIN" >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+  )
   sleep 0.2
   is_running || { warn "Process exited immediately."; tail -n 100 "$LOG_FILE" || true; return 1; }
   wait_health
@@ -178,7 +204,7 @@ start(){
 stop(){
   if ! is_running; then warn "Native process is not running."; rm -f "$PID_FILE"; return 0; fi
   local p; p="$(pid_value)"; info "Stopping PID $p..."; kill -TERM "$p" 2>/dev/null || true
-  local i; for i in $(seq 1 30); do kill -0 "$p" 2>/dev/null || { rm -f "$PID_FILE"; ok "Stopped gracefully."; return 0; }; sleep 1; done
+  local i; for i in $(seq 1 30); do is_running || { rm -f "$PID_FILE"; ok "Stopped gracefully."; return 0; }; sleep 1; done
   warn "Graceful shutdown timed out."; if confirm "Force kill PID $p?"; then kill -KILL "$p" 2>/dev/null || true; rm -f "$PID_FILE"; ok "Process killed."; fi
 }
 
@@ -190,7 +216,7 @@ show_status(){
   if is_running; then
     printf '  Process:   running (PID %s)\n' "$(pid_value)"
     printf '  URL:       %s\n' "$(local_url)"
-    curl -fsS --max-time 3 "$(local_url)/healthz" >/dev/null 2>&1 && ok "Healthcheck: healthy" || warn "Healthcheck: failed"
+    "$BIN" healthcheck --url="$(local_url)/healthz" >/dev/null 2>&1 && ok "Healthcheck: healthy" || warn "Healthcheck: failed"
   else
     printf '  Process:   stopped\n'
   fi
