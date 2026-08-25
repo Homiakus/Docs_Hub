@@ -1,0 +1,55 @@
+name: docshub
+
+services:
+  docshub:
+    build:
+      context: .
+    env_file:
+      - .env.production
+    environment:
+      ADDR: ":8080"
+      DATA_DIR: "/data"
+      COOKIE_SECURE: "1"
+      TLS_ENABLED: "0"
+      TLS_CERT_FILE: ""
+      TLS_KEY_FILE: ""
+    expose:
+      - "8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/docshub", "healthcheck", "--url=http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      docshub:
+        condition: service_healthy
+    environment:
+      DOMAIN: "${DOMAIN:?DOMAIN is required}"
+      ACME_EMAIL: "${ACME_EMAIL:?ACME_EMAIL is required}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:
