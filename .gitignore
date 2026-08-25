@@ -2,10 +2,13 @@ storage.json
 storage.json.tmp
 data/
 data-local/
+data-native/
 deploy/
 uploads/
 backups/
 bin/
+.run/
+.logs/
 *.log
 *.exe
 *.tmp
