@@ -1,6 +1,7 @@
 storage.json
 storage.json.tmp
 data/
+data-local/
 deploy/
 uploads/
 backups/
