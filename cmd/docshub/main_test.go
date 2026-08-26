@@ -1,7 +1,10 @@
 package main
 
 import (
+	"go/parser"
+	"go/token"
 	"log/slog"
+	"strconv"
 	"testing"
 )
 
@@ -38,5 +41,26 @@ func TestParseLogLevel(t *testing.T) {
 				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestArchitectureCLIUsesCompositionRoot(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse main.go: %v", err)
+	}
+
+	forbidden := map[string]struct{}{
+		"github.com/homiakus/docshub-next/internal/db":      {},
+		"github.com/homiakus/docshub-next/internal/httpapp": {},
+	}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			t.Fatalf("decode import %s: %v", spec.Path.Value, err)
+		}
+		if _, blocked := forbidden[path]; blocked {
+			t.Fatalf("cmd/docshub bypasses composition root by importing %q", path)
+		}
 	}
 }
