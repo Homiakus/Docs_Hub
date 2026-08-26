@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/homiakus/docshub-next/internal/config"
+	"github.com/homiakus/docshub-next/internal/db"
 )
 
 func TestNewBuildsProductionHandlerAndInfrastructure(t *testing.T) {
@@ -55,5 +56,27 @@ func TestNilAppHandlerFailsClosed(t *testing.T) {
 	app.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status=%d want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestSeedDemoOwnsPersistenceLifecycle(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.Config{DBPath: filepath.Join(t.TempDir(), "seed", "docshub.db")}
+	if err := SeedDemo(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := db.Open(ctx, cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	var articles int
+	if err := database.QueryRowContext(ctx, `SELECT count(*) FROM articles WHERE deleted_at IS NULL`).Scan(&articles); err != nil {
+		t.Fatal(err)
+	}
+	if articles == 0 {
+		t.Fatal("seed demo produced no articles")
 	}
 }
