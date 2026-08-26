@@ -2,11 +2,11 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
@@ -25,6 +25,9 @@ type App struct {
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, error) {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o750); err != nil {
+		return nil, fmt.Errorf("create database dir: %w", err)
 	}
 	if err := os.MkdirAll(cfg.UploadDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create upload dir: %w", err)
@@ -54,9 +57,5 @@ func (a *App) Close() error {
 	if a == nil || a.database == nil {
 		return nil
 	}
-	err := a.database.Close()
-	if err != nil && !errors.Is(err, os.ErrClosed) {
-		return err
-	}
-	return nil
+	return a.database.Close()
 }
