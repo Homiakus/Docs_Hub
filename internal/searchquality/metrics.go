@@ -17,6 +17,7 @@ func MRRAtK(results [][]string, relevant []map[string]struct{}, k int) float64 {
 				total += 1 / float64(rank+1)
 				break
 			}
+		}
 	}
 	return total / float64(len(results))
 }
