@@ -14,10 +14,10 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/homiakus/docshub-next/internal/bootstrap"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
 	"github.com/homiakus/docshub-next/internal/db/seeder"
-	"github.com/homiakus/docshub-next/internal/httpapp"
 )
 
 const Version = "v0.4.0-alpha.2"
@@ -52,27 +52,20 @@ func main() {
 	level := parseLogLevel(cfg.LogLevel)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
-	if err := os.MkdirAll(cfg.UploadDir, 0o750); err != nil {
-		logger.Error("upload dir", "err", err)
-		os.Exit(1)
-	}
-
-	database, err := db.Open(ctx, cfg.DBPath)
-	if err != nil {
-		logger.Error("db open", "err", err)
-		os.Exit(1)
-	}
-	defer database.Close()
-
-	app, err := httpapp.New(cfg, database, logger)
+	app, err := bootstrap.New(ctx, cfg, logger)
 	if err != nil {
 		logger.Error("app init", "err", err)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := app.Close(); err != nil {
+			logger.Error("app close", "err", err)
+		}
+	}()
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           app.Routes(),
+		Handler:           app.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
