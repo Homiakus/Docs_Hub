@@ -16,8 +16,6 @@ import (
 
 	"github.com/homiakus/docshub-next/internal/bootstrap"
 	"github.com/homiakus/docshub-next/internal/config"
-	"github.com/homiakus/docshub-next/internal/db"
-	"github.com/homiakus/docshub-next/internal/db/seeder"
 )
 
 const Version = "v0.4.0-alpha.2"
@@ -135,20 +133,11 @@ func parseLogLevel(s string) slog.Level {
 func runSeedDemo() {
 	_ = godotenv.Load()
 	cfg := config.Load()
-	ctx := context.Background()
-
-	database, err := db.Open(ctx, cfg.DBPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
-		os.Exit(1)
-	}
-	defer database.Close()
 
 	fmt.Printf("Seeding demo data into DB at: %s...\n", cfg.DBPath)
-	if err := seeder.SeedDemo(ctx, database); err != nil {
+	if err := bootstrap.SeedDemo(context.Background(), cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "seeder error: %v\n", err)
 		os.Exit(1)
 	}
 	fmt.Println("Demo seeding completed successfully!")
-	os.Exit(0)
 }
