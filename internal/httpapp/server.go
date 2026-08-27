@@ -202,6 +202,7 @@ type Page struct {
 	CurrentDomain   *domain.Domain
 	Projects        []domain.Project
 	CurrentProject  *domain.Project
+	Slides          []markdownx.Slide
 	PDFKey          string
 	PDFURL          string
 	PDFName         string
@@ -276,6 +277,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/spaces", s.requireLogin(s.spacesPage))
 	r.Get("/spaces/{slug}", s.requireLogin(s.showSpacePage))
 	r.Get("/a/{slug}", s.requireLogin(s.article))
+	r.Get("/p/{slug}", s.requireLogin(s.presentationPage))
 	r.Get("/new", s.requireEditor(s.editNew))
 	r.Get("/edit/{slug}", s.requireEditor(s.editExisting))
 	r.Post("/save", s.requireEditor(s.saveArticle))
@@ -749,6 +751,30 @@ func (s *Server) article(w http.ResponseWriter, r *http.Request) {
 		CurrentSpace:    Space{ID: a.SpaceID, Name: a.SpaceName, Slug: a.SpaceSlug},
 		WorkflowActions: s.workflowActions(r.Context(), u, a),
 		Notice:          r.URL.Query().Get("notice"),
+	})
+}
+
+func (s *Server) presentationPage(w http.ResponseWriter, r *http.Request) {
+	slug := slugParam(r)
+	a, err := s.getArticle(r.Context(), slug)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	u := userFrom(r.Context())
+	if !s.canViewArticle(r.Context(), u, a) {
+		http.Error(w, "forbidden", 403)
+		return
+	}
+	slides, err := markdownx.ExtractSlides(a.Content)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	s.render(w, r, "presentation", Page{
+		Title:   a.Title + " — Презентация",
+		Article: a,
+		Slides:  slides,
 	})
 }
 

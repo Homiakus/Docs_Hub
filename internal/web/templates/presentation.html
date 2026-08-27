@@ -1,0 +1,120 @@
+{{define "content"}}
+<div class="presentation-view" id="presentationContainer" tabindex="0" role="region" aria-label="Слайд презентации">
+  <header class="presentation-header">
+    <a class="btn btn-ghost btn-sm" href="/a/{{.Article.Slug}}">
+      <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      <span>Назад к документу</span>
+    </a>
+    <div class="presentation-title">{{.Article.Title}}</div>
+    <div class="presentation-controls">
+      <button class="btn btn-ghost btn-sm" type="button" id="toggleNotesBtn" title="Заметки докладчика (S)">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Заметки</span>
+      </button>
+      <button class="btn btn-ghost btn-sm" type="button" id="fullscreenBtn" title="Полноэкранный режим (F)">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="presentation-stage">
+    {{range $idx, $slide := .Slides}}
+    <section class="presentation-slide {{if eq $idx 0}}active{{end}}" id="slide-{{$slide.Index}}" data-slide-index="{{$slide.Index}}" aria-hidden="{{if ne $idx 0}}true{{else}}false{{end}}">
+      <div class="slide-content markdown">
+        {{$slide.Content}}
+      </div>
+      {{if $slide.Notes}}
+      <aside class="speaker-notes" id="notes-{{$slide.Index}}" hidden>
+        <strong>Заметки докладчика:</strong>
+        <p>{{$slide.Notes}}</p>
+      </aside>
+      {{end}}
+    </section>
+    {{end}}
+  </main>
+
+  <footer class="presentation-footer">
+    <div class="slide-nav">
+      <button class="btn btn-ghost btn-sm" type="button" id="prevSlideBtn" title="Предыдущий слайд (←)">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <span class="slide-counter" id="slideCounter">1 / {{len .Slides}}</span>
+      <button class="btn btn-ghost btn-sm" type="button" id="nextSlideBtn" title="Следующий слайд (→)">
+        <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+    <div class="presentation-progress-bar">
+      <div class="presentation-progress-fill" id="progressFill" style="width: calc(100% / {{len .Slides}});"></div>
+    </div>
+  </footer>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const slides = Array.from(document.querySelectorAll('.presentation-slide'));
+  const counter = document.getElementById('slideCounter');
+  const progress = document.getElementById('progressFill');
+  const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+  const prevBtn = document.getElementById('prevSlideBtn');
+  const nextBtn = document.getElementById('nextSlideBtn');
+  let currentIndex = 0;
+  let showNotes = false;
+
+  function showSlide(index) {
+    if (index < 0 || index >= slides.length) return;
+    slides[currentIndex].classList.remove('active');
+    slides[currentIndex].setAttribute('aria-hidden', 'true');
+    currentIndex = index;
+    slides[currentIndex].classList.add('active');
+    slides[currentIndex].setAttribute('aria-hidden', 'false');
+    counter.textContent = `${currentIndex + 1} / ${slides.length}`;
+    progress.style.width = `${((currentIndex + 1) / slides.length) * 100}%`;
+
+    const notes = slides[currentIndex].querySelector('.speaker-notes');
+    if (notes) {
+      notes.hidden = !showNotes;
+    }
+  }
+
+  prevBtn?.addEventListener('click', () => showSlide(currentIndex - 1));
+  nextBtn?.addEventListener('click', () => showSlide(currentIndex + 1));
+
+  toggleNotesBtn?.addEventListener('click', () => {
+    showNotes = !showNotes;
+    slides.forEach((s) => {
+      const n = s.querySelector('.speaker-notes');
+      if (n && s.classList.contains('active')) {
+        n.hidden = !showNotes;
+      }
+    });
+  });
+
+  fullscreenBtn?.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      showSlide(currentIndex + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+      e.preventDefault();
+      showSlide(currentIndex - 1);
+    } else if (e.key === 's' || e.key === 'S') {
+      toggleNotesBtn?.click();
+    } else if (e.key === 'f' || e.key === 'F') {
+      fullscreenBtn?.click();
+    } else if (e.key === 'Home') {
+      showSlide(0);
+    } else if (e.key === 'End') {
+      showSlide(slides.length - 1);
+    }
+  });
+});
+</script>
+{{end}}
