@@ -60,6 +60,7 @@ func TestNilAppHandlerFailsClosed(t *testing.T) {
 }
 
 func TestSeedDemoOwnsPersistenceLifecycle(t *testing.T) {
+	t.Setenv("DEMO_PASSWORD", "demo-password-123")
 	ctx := context.Background()
 	cfg := config.Config{DBPath: filepath.Join(t.TempDir(), "seed", "docshub.db")}
 	if err := SeedDemo(ctx, cfg); err != nil {
