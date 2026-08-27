@@ -38,6 +38,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/db"
 	"github.com/homiakus/docshub-next/internal/domain"
 	"github.com/homiakus/docshub-next/internal/markdownx"
+	"github.com/homiakus/docshub-next/internal/repository"
 	"github.com/homiakus/docshub-next/internal/repository/sqlite"
 	"github.com/homiakus/docshub-next/internal/web"
 )
@@ -50,6 +51,7 @@ type Server struct {
 	domainProjectService      *application.DomainProjectService
 	domainProjectQueryService *application.DomainProjectQueryService
 	searchService             application.SearchService
+	commentRepo               repository.CommentRepository
 	sessions                  *authn.SessionManager
 	authorizer                authz.Authorizer
 }
@@ -222,6 +224,7 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 		s.domainProjectService = application.NewDomainProjectService(domainRepo, projectRepo, secAdapter)
 		s.domainProjectQueryService = application.NewDomainProjectQueryService(domainRepo, domainRepo, projectRepo, secAdapter)
 		s.searchService = application.NewSearchService(articleRepo)
+		s.commentRepo = sqlite.NewCommentRepository(d)
 		s.sessions = authn.NewSessionManager(d, cfg.SessionSecret)
 		s.authorizer = secAdapter
 	}
@@ -272,6 +275,10 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/api/v1/domains", s.requireEditor(s.apiCreateDomain))
 	r.Get("/api/v1/domains/{id}/projects", s.requireLogin(s.apiListProjects))
 	r.Post("/api/v1/projects", s.requireEditor(s.apiCreateProject))
+	r.Get("/api/v1/documents/{id}/comments", s.requireLogin(s.apiGetComments))
+	r.Post("/api/v1/documents/{id}/comments", s.requireLogin(s.apiCreateComment))
+	r.Post("/api/v1/comments/{id}/resolve", s.requireLogin(s.apiResolveComment))
+	r.Delete("/api/v1/comments/{id}", s.requireLogin(s.apiDeleteComment))
 	r.Get("/domains", s.requireLogin(s.domainsPage))
 	r.Get("/domains/{slug}", s.requireLogin(s.showDomainPage))
 	r.Get("/spaces", s.requireLogin(s.spacesPage))

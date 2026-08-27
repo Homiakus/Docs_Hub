@@ -257,3 +257,33 @@ type BackupRow struct {
 	SizeBytes int64  `json:"size_bytes"`
 	CreatedAt string `json:"created_at"`
 }
+
+type CommentStatus string
+
+const (
+	CommentStatusOpen     CommentStatus = "open"
+	CommentStatusResolved CommentStatus = "resolved"
+	CommentStatusOrphaned CommentStatus = "orphaned"
+)
+
+type Comment struct {
+	ID             int64         `json:"id"`
+	DocumentID     int64         `json:"document_id"`
+	AuthorID       int64         `json:"author_id"`
+	AuthorName     string        `json:"author_name,omitempty"`
+	ParentID       *int64        `json:"parent_id,omitempty"`
+	BaseRevisionID int64         `json:"base_revision_id"`
+	StartOffset    int           `json:"start_offset"`
+	EndOffset      int           `json:"end_offset"`
+	QuoteExact     string        `json:"quote_exact"`
+	QuotePrefix    string        `json:"quote_prefix"`
+	QuoteSuffix    string        `json:"quote_suffix"`
+	ASTNodeKind    string        `json:"ast_node_kind"`
+	ASTPath        string        `json:"ast_path"`
+	HeadingID      string        `json:"heading_id"`
+	Status         CommentStatus `json:"status"`
+	Body           string        `json:"body"`
+	CreatedAt      string        `json:"created_at"`
+	UpdatedAt      string        `json:"updated_at"`
+	Replies        []Comment     `json:"replies,omitempty"`
+}
