@@ -8,18 +8,21 @@ import (
 )
 
 type Config struct {
-	Addr          string
-	DataDir       string
-	DBPath        string
-	UploadDir     string
-	SiteName      string
-	AdminUser     string
-	AdminPassword string
-	SessionSecret string
-	CookieSecure  bool
-	TLS           TLSConfig
-	LogLevel      string
-	RateLimit     RateLimitConfig
+	Addr                       string
+	DataDir                    string
+	DBPath                     string
+	UploadDir                  string
+	SiteName                   string
+	AdminUser                  string
+	AdminPassword              string
+	SessionSecret              string
+	CookieSecure               bool
+	TelegramBotToken           string
+	TelegramChatID             string
+	TelegramNotificationsEnabled bool
+	TLS                        TLSConfig
+	LogLevel                   string
+	RateLimit                  RateLimitConfig
 }
 
 type TLSConfig struct {
@@ -37,15 +40,18 @@ type RateLimitConfig struct {
 func Load() Config {
 	dataDir := getenv("DATA_DIR", "./data")
 	cfg := Config{
-		Addr:          getenv("ADDR", ":8080"),
-		DataDir:       dataDir,
-		DBPath:        getenv("DB_PATH", filepath.Join(dataDir, "docshub.db")),
-		UploadDir:     getenv("UPLOAD_DIR", filepath.Join(dataDir, "uploads")),
-		SiteName:      getenv("SITE_NAME", "Docs Hub Next"),
-		AdminUser:     getenv("ADMIN_USER", "admin"),
-		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
-		SessionSecret: os.Getenv("SESSION_SECRET"),
-		CookieSecure:  os.Getenv("COOKIE_SECURE") == "1" || os.Getenv("COOKIE_SECURE") == "true",
+		Addr:                         getenv("ADDR", ":8080"),
+		DataDir:                      dataDir,
+		DBPath:                       getenv("DB_PATH", filepath.Join(dataDir, "docshub.db")),
+		UploadDir:                    getenv("UPLOAD_DIR", filepath.Join(dataDir, "uploads")),
+		SiteName:                     getenv("SITE_NAME", "Docs Hub Next"),
+		AdminUser:                    getenv("ADMIN_USER", "admin"),
+		AdminPassword:                os.Getenv("ADMIN_PASSWORD"),
+		SessionSecret:                os.Getenv("SESSION_SECRET"),
+		CookieSecure:                 os.Getenv("COOKIE_SECURE") == "1" || os.Getenv("COOKIE_SECURE") == "true",
+		TelegramBotToken:             getenv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramChatID:               getenv("TELEGRAM_CHAT_ID", ""),
+		TelegramNotificationsEnabled: os.Getenv("TELEGRAM_NOTIFICATIONS_ENABLED") == "1" || os.Getenv("TELEGRAM_NOTIFICATIONS_ENABLED") == "true",
 		TLS: TLSConfig{
 			Enabled:  os.Getenv("TLS_ENABLED") == "1" || os.Getenv("TLS_ENABLED") == "true",
 			CertFile: getenv("TLS_CERT_FILE", ""),
