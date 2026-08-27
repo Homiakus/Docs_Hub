@@ -69,7 +69,31 @@ func (r *ArticleRepository) GetByID(ctx context.Context, id int64) (*domain.Arti
 	return &a, nil
 }
 
+func articleAuthPredicate(u *domain.User, tableAlias string) (string, []any) {
+	col := func(name string) string {
+		if tableAlias != "" {
+			return tableAlias + "." + name
+		}
+		return name
+	}
+
+	if u == nil {
+		return col("visibility") + " = 'public'", nil
+	}
+	if u.Role == "admin" {
+		return "1=1", nil
+	}
+
+	// Authenticated user: public, authenticated, owner, or explicit ACL in acl_users / acl_groups
+	clause := "(" + col("visibility") + " IN ('public', 'authenticated') OR " +
+		col("owner_id") + " = ? OR " +
+		col("id") + " IN (SELECT article_id FROM acl_users WHERE user_id = ? AND permission IN ('read', 'write', 'admin')) OR " +
+		col("id") + " IN (SELECT ag.article_id FROM acl_groups ag JOIN group_members gm ON gm.group_id = ag.group_id WHERE gm.user_id = ? AND ag.permission IN ('read', 'write', 'admin')))"
+	return clause, []any{u.ID, u.ID, u.ID}
+}
+
 func (r *ArticleRepository) ListArticles(ctx context.Context, u *domain.User, query string) ([]domain.Article, error) {
+	pred, predArgs := articleAuthPredicate(u, "a")
 	var rows *sql.Rows
 	var err error
 	if query != "" {
@@ -77,9 +101,21 @@ func (r *ArticleRepository) ListArticles(ctx context.Context, u *domain.User, qu
 		if !strings.ContainsAny(ftsQuery, " *\"") {
 			ftsQuery += "*"
 		}
-		rows, err = r.db.QueryContext(ctx, `SELECT a.id, a.slug, a.title, a.content, a.rendered_html, a.visibility, a.updated_at, coalesce(a.category_id,0), coalesce(c.name,''), coalesce(a.owner_id,0) FROM article_fts f JOIN articles a ON a.id = f.rowid LEFT JOIN categories c ON c.id=a.category_id WHERE article_fts MATCH ? AND a.deleted_at IS NULL ORDER BY bm25(article_fts) LIMIT 100`, ftsQuery)
+		sqlQuery := `SELECT a.id, a.slug, a.title, a.content, a.rendered_html, a.visibility, a.updated_at, coalesce(a.category_id,0), coalesce(c.name,''), coalesce(a.owner_id,0) 
+			FROM article_fts f 
+			JOIN articles a ON a.id = f.rowid 
+			LEFT JOIN categories c ON c.id=a.category_id 
+			WHERE article_fts MATCH ? AND a.deleted_at IS NULL AND ` + pred + ` 
+			ORDER BY bm25(article_fts) LIMIT 100`
+		args := append([]any{ftsQuery}, predArgs...)
+		rows, err = r.db.QueryContext(ctx, sqlQuery, args...)
 	} else {
-		rows, err = r.db.QueryContext(ctx, `SELECT a.id, a.slug, a.title, a.content, a.rendered_html, a.visibility, a.updated_at, coalesce(a.category_id,0), coalesce(c.name,''), coalesce(a.owner_id,0) FROM articles a LEFT JOIN categories c ON c.id=a.category_id WHERE a.deleted_at IS NULL ORDER BY a.updated_at DESC LIMIT 100`)
+		sqlQuery := `SELECT a.id, a.slug, a.title, a.content, a.rendered_html, a.visibility, a.updated_at, coalesce(a.category_id,0), coalesce(c.name,''), coalesce(a.owner_id,0) 
+			FROM articles a 
+			LEFT JOIN categories c ON c.id=a.category_id 
+			WHERE a.deleted_at IS NULL AND ` + pred + ` 
+			ORDER BY a.updated_at DESC LIMIT 100`
+		rows, err = r.db.QueryContext(ctx, sqlQuery, predArgs...)
 	}
 	if err != nil {
 		return nil, err
@@ -94,9 +130,7 @@ func (r *ArticleRepository) ListArticles(ctx context.Context, u *domain.User, qu
 			continue
 		}
 		a.HTML = template.HTML(html)
-		if r.CanRead(ctx, u, a.ID, a.Visibility) {
-			out = append(out, a)
-		}
+		out = append(out, a)
 	}
 	return out, nil
 }
@@ -147,7 +181,14 @@ func (r *ArticleRepository) ListRecentActivity(ctx context.Context, u *domain.Us
 }
 
 func (r *ArticleRepository) ListBacklinks(ctx context.Context, u *domain.User, slug string) ([]domain.Article, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT a.id, a.slug, a.title, a.visibility FROM links l JOIN articles a ON a.id=l.from_article_id WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.title`, slug)
+	pred, predArgs := articleAuthPredicate(u, "a")
+	sqlQuery := `SELECT a.id, a.slug, a.title, a.visibility 
+		FROM links l 
+		JOIN articles a ON a.id=l.from_article_id 
+		WHERE l.target_slug=? AND a.deleted_at IS NULL AND ` + pred + ` 
+		ORDER BY a.title`
+	args := append([]any{slug}, predArgs...)
+	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -156,18 +197,23 @@ func (r *ArticleRepository) ListBacklinks(ctx context.Context, u *domain.User, s
 	for rows.Next() {
 		var a domain.Article
 		if err := rows.Scan(&a.ID, &a.Slug, &a.Title, &a.Visibility); err == nil {
-			if r.CanRead(ctx, u, a.ID, a.Visibility) {
-				out = append(out, a)
-			}
+			out = append(out, a)
 		}
 	}
 	return out, nil
 }
 
 func (r *ArticleRepository) ListWikiLinks(ctx context.Context, u *domain.User, articleID int64, slug string) ([]domain.WikiLinkItem, error) {
+	pred, predArgs := articleAuthPredicate(u, "a")
 	out := []domain.WikiLinkItem{}
 	if articleID > 0 {
-		rows, err := r.db.QueryContext(ctx, `SELECT l.target_slug, coalesce(a.title, l.target_slug) FROM links l LEFT JOIN articles a ON a.slug=l.target_slug AND a.deleted_at IS NULL WHERE l.from_article_id=? ORDER BY 2`, articleID)
+		sqlQuery := `SELECT l.target_slug, coalesce(a.title, l.target_slug) 
+			FROM links l 
+			LEFT JOIN articles a ON a.slug=l.target_slug AND a.deleted_at IS NULL AND ` + pred + ` 
+			WHERE l.from_article_id=? 
+			ORDER BY 2`
+		args := append(predArgs, articleID)
+		rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -179,13 +225,19 @@ func (r *ArticleRepository) ListWikiLinks(ctx context.Context, u *domain.User, a
 		}
 	}
 	if slug != "" {
-		rows, err := r.db.QueryContext(ctx, `SELECT a.slug, a.title, a.id, a.visibility FROM links l JOIN articles a ON a.id=l.from_article_id WHERE l.target_slug=? AND a.deleted_at IS NULL ORDER BY a.title`, slug)
+		sqlQuery := `SELECT a.slug, a.title, a.id, a.visibility 
+			FROM links l 
+			JOIN articles a ON a.id=l.from_article_id 
+			WHERE l.target_slug=? AND a.deleted_at IS NULL AND ` + pred + ` 
+			ORDER BY a.title`
+		args := append([]any{slug}, predArgs...)
+		rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
 				var sourceSlug, title, vis string
 				var sourceID int64
-				if rows.Scan(&sourceSlug, &title, &sourceID, &vis) == nil && r.CanRead(ctx, u, sourceID, vis) {
+				if rows.Scan(&sourceSlug, &title, &sourceID, &vis) == nil {
 					out = append(out, domain.WikiLinkItem{Slug: sourceSlug, Label: title, Direction: "back"})
 				}
 			}
@@ -301,32 +353,25 @@ func (r *ArticleRepository) CountArticles(ctx context.Context) (int, error) {
 }
 
 func (r *ArticleRepository) GraphData(ctx context.Context, u *domain.User) ([]map[string]string, []map[string]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,slug,title,visibility FROM articles WHERE deleted_at IS NULL ORDER BY title`)
+	pred, predArgs := articleAuthPredicate(u, "a")
+	rows, err := r.db.QueryContext(ctx, `SELECT a.id, a.slug, a.title, a.visibility FROM articles a WHERE a.deleted_at IS NULL AND `+pred+` ORDER BY a.title`, predArgs...)
 	if err != nil {
 		return nil, nil, err
 	}
-	type candidate struct {
-		id         int64
-		slug, title, vis string
-	}
-	var candidates []candidate
-	for rows.Next() {
-		var item candidate
-		if err := rows.Scan(&item.id, &item.slug, &item.title, &item.vis); err == nil {
-			candidates = append(candidates, item)
-		}
-	}
-	rows.Close()
+	defer rows.Close()
 
 	var nodes []map[string]string
 	accessibleSlugs := make(map[string]bool)
-	for _, item := range candidates {
-		if r.CanRead(ctx, u, item.id, item.vis) {
-			nodes = append(nodes, map[string]string{"id": item.slug, "label": item.title})
-			accessibleSlugs[item.slug] = true
+	for rows.Next() {
+		var id int64
+		var slug, title, vis string
+		if err := rows.Scan(&id, &slug, &title, &vis); err == nil {
+			nodes = append(nodes, map[string]string{"id": slug, "label": title})
+			accessibleSlugs[slug] = true
 		}
 	}
-	lr, err := r.db.QueryContext(ctx, `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id WHERE a.deleted_at IS NULL`)
+
+	lr, err := r.db.QueryContext(ctx, `SELECT a.slug, l.target_slug FROM links l JOIN articles a ON a.id=l.from_article_id WHERE a.deleted_at IS NULL AND `+pred, predArgs...)
 	if err != nil {
 		return nodes, []map[string]string{}, nil
 	}
