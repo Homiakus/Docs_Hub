@@ -265,6 +265,7 @@ func (s *Server) Routes() http.Handler {
 	}
 	r.With(staticCacheHeaders).Handle("/static/*", http.FileServerFS(web.FS))
 	r.Get("/healthz", s.health)
+	r.Get("/readyz", s.readyz)
 	r.Get("/login", s.loginForm)
 	r.With(s.loginRateLimiter()).Post("/login", s.login)
 	r.Post("/logout", s.logout)
@@ -1884,6 +1885,17 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.log.Error("health encode", "err", err)
 	}
+}
+
+func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	if err := s.db.PingContext(r.Context()); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "unready", "error": "database ping failed"})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "ready", "database": "ok"})
 }
 
 func (s *Server) listArticles(ctx context.Context, u *User, q string) ([]Article, error) {
