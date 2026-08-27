@@ -36,6 +36,68 @@ type Organization struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type DomainStatus string
+
+const (
+	DomainActive   DomainStatus = "active"
+	DomainArchived DomainStatus = "archived"
+)
+
+type ProjectStatus string
+
+const (
+	ProjectActive   ProjectStatus = "active"
+	ProjectPaused   ProjectStatus = "paused"
+	ProjectArchived ProjectStatus = "archived"
+)
+
+type ProjectAccessMode string
+
+const (
+	ProjectAccessInherit    ProjectAccessMode = "inherit"
+	ProjectAccessRestricted ProjectAccessMode = "restricted"
+)
+
+// Domain is the primary product navigation and authorization boundary. StableKey
+// is immutable host identity; SecurityWorkspaceID is populated only after the
+// corresponding SecureAccess workspace has been provisioned and reconciled.
+type Domain struct {
+	ID                  int64        `json:"id"`
+	StableKey           string       `json:"stable_key"`
+	OrganizationID      int64        `json:"organization_id"`
+	SecurityWorkspaceID string       `json:"security_workspace_id,omitempty"`
+	Slug                string       `json:"slug"`
+	Name                string       `json:"name"`
+	Description         string       `json:"description"`
+	Icon                string       `json:"icon"`
+	Status              DomainStatus `json:"status"`
+	SortOrder           int          `json:"sort_order"`
+	CreatedBy           string       `json:"created_by"`
+	CreatedAt           string       `json:"created_at"`
+	UpdatedAt           string       `json:"updated_at"`
+}
+
+// Project is the product model that maps to the legacy physical `spaces` table
+// during migration M1/M2. New application code should use Project rather than
+// adding new dependencies on Space.
+type Project struct {
+	ID                  int64             `json:"id"`
+	StableKey           string            `json:"stable_key"`
+	OrganizationID      int64             `json:"organization_id"`
+	DomainID            int64             `json:"domain_id"`
+	SecurityWorkspaceID string            `json:"security_workspace_id,omitempty"`
+	Slug                string            `json:"slug"`
+	Name                string            `json:"name"`
+	Description         string            `json:"description"`
+	Status              ProjectStatus     `json:"status"`
+	AccessMode          ProjectAccessMode `json:"access_mode"`
+	SortOrder           int               `json:"sort_order"`
+	CreatedAt           string            `json:"created_at"`
+	UpdatedAt           string            `json:"updated_at"`
+}
+
+// Space is retained only as a compatibility model while production handlers
+// still read the physical `spaces` table. It is removed after M2 convergence.
 type Space struct {
 	ID                int64  `json:"id"`
 	OrganizationID    int64  `json:"organization_id"`

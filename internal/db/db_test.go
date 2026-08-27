@@ -105,7 +105,7 @@ func TestOpen_migrationTablesCreated(t *testing.T) {
 		t.Fatalf("rows iteration error: %v", err)
 	}
 
-	// Should have schema_migrations + tables from 001_init.sql and 002_admin_categories.sql
+	// Should have schema_migrations + tables from embedded migrations.
 	foundSM := false
 	for _, tbl := range tables {
 		if tbl == "schema_migrations" {
@@ -118,6 +118,68 @@ func TestOpen_migrationTablesCreated(t *testing.T) {
 	}
 	if len(tables) < 3 {
 		t.Errorf("expected at least 3 tables, got %d: %v", len(tables), tables)
+	}
+}
+
+func TestOpen_domainsProjectsCompatibilityMigration(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	ctx := context.Background()
+
+	database, err := Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	var (
+		domainID        int64
+		domainStableKey string
+		domainSlug      string
+		domainStatus    string
+	)
+	if err := database.QueryRowContext(ctx, `
+		SELECT id, stable_key, slug, status
+		FROM domains
+		WHERE organization_id = 1
+		ORDER BY id
+		LIMIT 1`).Scan(&domainID, &domainStableKey, &domainSlug, &domainStatus); err != nil {
+		t.Fatalf("query compatibility domain: %v", err)
+	}
+	if domainID == 0 || domainStableKey != "legacy-domain-1" || domainSlug != "general" || domainStatus != "active" {
+		t.Fatalf("unexpected compatibility domain: id=%d key=%q slug=%q status=%q", domainID, domainStableKey, domainSlug, domainStatus)
+	}
+
+	var (
+		projectDomainID int64
+		projectStable   string
+		accessMode      string
+		projectStatus   string
+	)
+	if err := database.QueryRowContext(ctx, `
+		SELECT domain_id, stable_key, access_mode, status
+		FROM spaces
+		WHERE id = 1`).Scan(&projectDomainID, &projectStable, &accessMode, &projectStatus); err != nil {
+		t.Fatalf("query compatibility project: %v", err)
+	}
+	if projectDomainID != domainID {
+		t.Fatalf("legacy project domain_id=%d want %d", projectDomainID, domainID)
+	}
+	if projectStable != "legacy-project-1" {
+		t.Fatalf("legacy project stable_key=%q", projectStable)
+	}
+	if accessMode != "inherit" || projectStatus != "active" {
+		t.Fatalf("legacy project access/status = %q/%q", accessMode, projectStatus)
+	}
+
+	var migrationCount int
+	if err := database.QueryRowContext(ctx, `
+		SELECT count(*) FROM schema_migrations
+		WHERE version = '008_domains_projects_compat.sql'`).Scan(&migrationCount); err != nil {
+		t.Fatalf("query migration marker: %v", err)
+	}
+	if migrationCount != 1 {
+		t.Fatalf("migration marker count=%d want 1", migrationCount)
 	}
 }
 
