@@ -32,6 +32,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/homiakus/docshub-next/internal/application"
 	"github.com/homiakus/docshub-next/internal/auth"
+	"github.com/homiakus/docshub-next/internal/authn"
 	"github.com/homiakus/docshub-next/internal/authz"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
@@ -49,6 +50,7 @@ type Server struct {
 	domainProjectService      *application.DomainProjectService
 	domainProjectQueryService *application.DomainProjectQueryService
 	searchService             application.SearchService
+	sessions                  *authn.SessionManager
 	authorizer                authz.Authorizer
 }
 
@@ -219,6 +221,7 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 		s.domainProjectService = application.NewDomainProjectService(domainRepo, projectRepo, secAdapter)
 		s.domainProjectQueryService = application.NewDomainProjectQueryService(domainRepo, domainRepo, projectRepo, secAdapter)
 		s.searchService = application.NewSearchService(articleRepo)
+		s.sessions = authn.NewSessionManager(d, cfg.SessionSecret)
 		s.authorizer = secAdapter
 	}
 	if err := s.bootstrap(context.Background()); err != nil {
@@ -694,23 +697,31 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.render(w, r, "login", Page{Title: "Вход", Error: "Неверный логин или пароль"})
 		return
 	}
-	sid, token := randomID(24), randomID(32)
-	csrf := randomID(32)
-	exp := time.Now().UTC().Add(7 * 24 * time.Hour)
-	_, err = s.db.ExecContext(r.Context(), `INSERT INTO sessions(id, token_hash, user_id, csrf_token, expires_at, created_at) VALUES(?,?,?,?,?,?)`, sid, hashToken(token, s.cfg.SessionSecret), u.ID, csrf, exp.Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+	if s.sessions != nil {
+		cookieVal, _, expStr, err := s.sessions.CreateSession(r.Context(), u.ID, clientIP(r), r.UserAgent())
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		exp, _ := time.Parse(time.RFC3339, expStr)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "dh_session",
+			Value:    cookieVal,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   s.cfg.CookieSecure,
+			SameSite: http.SameSiteLaxMode,
+			Expires:  exp,
+		})
 	}
-	http.SetCookie(w, &http.Cookie{Name: "dh_session", Value: sid + "." + token, Path: "/", HttpOnly: true, Secure: s.cfg.CookieSecure, SameSite: http.SameSiteLaxMode, Expires: exp})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie("dh_session"); err == nil {
-		sid := strings.SplitN(c.Value, ".", 2)[0]
-		if _, err := s.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id=?`, sid); err != nil {
-			s.log.Error("logout delete session", "err", err)
+	if c, err := r.Cookie("dh_session"); err == nil && s.sessions != nil {
+		parts := strings.SplitN(c.Value, ".", 2)
+		if len(parts) > 0 && parts[0] != "" {
+			_ = s.sessions.RevokeSession(r.Context(), parts[0])
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: "dh_session", Value: "", Path: "/", MaxAge: -1})
@@ -2948,20 +2959,19 @@ func staticCacheHeaders(next http.Handler) http.Handler {
 func (s *Server) withUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie("dh_session")
-		if err != nil {
+		if err != nil || s.sessions == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
-		parts := strings.SplitN(c.Value, ".", 2)
-		if len(parts) != 2 {
-			next.ServeHTTP(w, r)
-			return
-		}
-		var u User
-		var stored, exp, csrf string
-		err = s.db.QueryRowContext(r.Context(), `SELECT u.id,u.username,u.display_name,u.role,s.token_hash,s.expires_at,s.csrf_token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND u.is_active=1`, parts[0]).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &stored, &exp, &csrf)
-		if err == nil && stored == hashToken(parts[1], s.cfg.SessionSecret) && exp > time.Now().UTC().Format(time.RFC3339) {
-			ctx := context.WithValue(r.Context(), userKey{}, &u)
+		domainUser, csrf, err := s.sessions.ValidateSession(r.Context(), c.Value)
+		if err == nil && domainUser != nil {
+			u := &User{
+				ID:          domainUser.ID,
+				Username:    domainUser.Username,
+				DisplayName: domainUser.DisplayName,
+				Role:        domainUser.Role,
+			}
+			ctx := context.WithValue(r.Context(), userKey{}, u)
 			ctx = context.WithValue(ctx, csrfKey{}, csrf)
 			r = r.WithContext(ctx)
 		}
