@@ -35,6 +35,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/authz"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
+	"github.com/homiakus/docshub-next/internal/domain"
 	"github.com/homiakus/docshub-next/internal/markdownx"
 	"github.com/homiakus/docshub-next/internal/repository/sqlite"
 	"github.com/homiakus/docshub-next/internal/web"
@@ -194,6 +195,10 @@ type Page struct {
 	SearchSpace     string
 	SearchStatus    string
 	WorkflowActions []WorkflowAction
+	Domains         []domain.Domain
+	CurrentDomain   *domain.Domain
+	Projects        []domain.Project
+	CurrentProject  *domain.Project
 	PDFKey          string
 	PDFURL          string
 	PDFName         string
@@ -260,6 +265,8 @@ func (s *Server) Routes() http.Handler {
 	r.Post("/api/v1/domains", s.requireEditor(s.apiCreateDomain))
 	r.Get("/api/v1/domains/{id}/projects", s.requireLogin(s.apiListProjects))
 	r.Post("/api/v1/projects", s.requireEditor(s.apiCreateProject))
+	r.Get("/domains", s.requireLogin(s.domainsPage))
+	r.Get("/domains/{slug}", s.requireLogin(s.showDomainPage))
 	r.Get("/spaces", s.requireLogin(s.spacesPage))
 	r.Get("/spaces/{slug}", s.requireLogin(s.showSpacePage))
 	r.Get("/a/{slug}", s.requireLogin(s.article))

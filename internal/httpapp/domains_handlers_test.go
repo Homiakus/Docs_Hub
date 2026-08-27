@@ -104,6 +104,25 @@ func TestDomainProjectAPIIntegration(t *testing.T) {
 	if listPrjRes.StatusCode != http.StatusOK {
 		t.Fatalf("list projects status=%d want %d", listPrjRes.StatusCode, http.StatusOK)
 	}
+
+	// 6. Test HTML pages /domains and /domains/engineering
+	htmlDomainsRes, err := client.Get(server.URL + "/domains")
+	if err != nil {
+		t.Fatalf("get /domains: %v", err)
+	}
+	defer htmlDomainsRes.Body.Close()
+	if htmlDomainsRes.StatusCode != http.StatusOK {
+		t.Fatalf("get /domains status=%d want %d", htmlDomainsRes.StatusCode, http.StatusOK)
+	}
+
+	htmlDomainDetailRes, err := client.Get(server.URL + "/domains/engineering")
+	if err != nil {
+		t.Fatalf("get /domains/engineering: %v", err)
+	}
+	defer htmlDomainDetailRes.Body.Close()
+	if htmlDomainDetailRes.StatusCode != http.StatusOK {
+		t.Fatalf("get /domains/engineering status=%d want %d", htmlDomainDetailRes.StatusCode, http.StatusOK)
+	}
 }
 
 func TestDomainProjectAPIUnauthorized(t *testing.T) {
