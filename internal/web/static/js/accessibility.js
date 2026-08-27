@@ -1,22 +1,6 @@
 (() => {
   'use strict';
 
-  function syncHiddenContainer(container) {
-    const hidden = container.getAttribute('aria-hidden') === 'true';
-    // inert removes descendants from focus navigation as well as the
-    // accessibility tree. It is the semantic counterpart to aria-hidden.
-    container.inert = hidden;
-  }
-
-  function normalizeHiddenDialogs(root = document) {
-    root.querySelectorAll('[aria-hidden]').forEach((container) => {
-      if (!(container.matches('[role="dialog"]') || container.querySelector('[role="dialog"]'))) return;
-      syncHiddenContainer(container);
-      const observer = new MutationObserver(() => syncHiddenContainer(container));
-      observer.observe(container, { attributes: true, attributeFilter: ['aria-hidden'] });
-    });
-  }
-
   function normalizeDetails(root = document) {
     root.querySelectorAll('details > summary').forEach((summary) => {
       const details = summary.parentElement;
@@ -38,10 +22,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    // command-palette.js creates its dialog during DOMContentLoaded before
-    // this deferred script's listener runs, so both static and dynamic
-    // dialogs are normalized here.
-    normalizeHiddenDialogs();
+    // Hidden dialogs are made non-focusable by the synchronous CSS
+    // visibility rule keyed from aria-hidden. Avoid using MutationObserver
+    // to toggle `inert`: existing dialog managers focus their first control
+    // immediately after aria-hidden=false, before observer callbacks run.
     normalizeDetails();
   });
 })();
