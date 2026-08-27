@@ -32,17 +32,22 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/homiakus/docshub-next/internal/application"
 	"github.com/homiakus/docshub-next/internal/auth"
+	"github.com/homiakus/docshub-next/internal/authz"
 	"github.com/homiakus/docshub-next/internal/config"
 	"github.com/homiakus/docshub-next/internal/db"
 	"github.com/homiakus/docshub-next/internal/markdownx"
+	"github.com/homiakus/docshub-next/internal/repository/sqlite"
 	"github.com/homiakus/docshub-next/internal/web"
 )
 
 type Server struct {
-	cfg config.Config
-	db  *db.DB
-	tpl *template.Template
-	log *slog.Logger
+	cfg                       config.Config
+	db                        *db.DB
+	tpl                       *template.Template
+	log                       *slog.Logger
+	domainProjectService      *application.DomainProjectService
+	domainProjectQueryService *application.DomainProjectQueryService
+	authorizer                authz.Authorizer
 }
 
 type User struct {
@@ -200,6 +205,14 @@ type Page struct {
 
 func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 	s := &Server{cfg: cfg, db: d, log: logger}
+	if d != nil {
+		domainRepo := sqlite.NewDomainRepository(d)
+		projectRepo := sqlite.NewProjectRepository(d)
+		secAdapter := authz.NewSecurityAdapter(d)
+		s.domainProjectService = application.NewDomainProjectService(domainRepo, projectRepo, secAdapter)
+		s.domainProjectQueryService = application.NewDomainProjectQueryService(domainRepo, domainRepo, projectRepo, secAdapter)
+		s.authorizer = secAdapter
+	}
 	if err := s.bootstrap(context.Background()); err != nil {
 		return nil, err
 	}
@@ -243,6 +256,10 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/", s.requireLogin(s.home))
 	r.Get("/search", s.requireLogin(s.searchPage))
 	r.Get("/api/v1/search/suggest", s.requireLogin(s.searchSuggestAPI))
+	r.Get("/api/v1/domains", s.requireLogin(s.apiListDomains))
+	r.Post("/api/v1/domains", s.requireEditor(s.apiCreateDomain))
+	r.Get("/api/v1/domains/{id}/projects", s.requireLogin(s.apiListProjects))
+	r.Post("/api/v1/projects", s.requireEditor(s.apiCreateProject))
 	r.Get("/spaces", s.requireLogin(s.spacesPage))
 	r.Get("/spaces/{slug}", s.requireLogin(s.showSpacePage))
 	r.Get("/a/{slug}", s.requireLogin(s.article))
