@@ -1,0 +1,134 @@
+/* Characterization baseline fixes.
+ * Keep these rules small and explicit; migrate them into component styles as
+ * the UI packages are split further.
+ */
+
+/* .layout lives inside the app-main grid column. Viewport units accidentally
+ * counted the sidebar twice and caused page-level overflow on desktop. */
+.layout {
+  width: min(1520px, 100%);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.app-main,
+.layout,
+.editor,
+.editor-workspace,
+.editor-canvas,
+.admin-section,
+.admin-item,
+.pdf-workspace,
+.graph-shell {
+  min-width: 0;
+}
+
+/* Small tertiary text must still meet WCAG AA on the light surfaces used by
+ * dashboard metadata. */
+.eyebrow,
+.metric-index,
+.metric-card > div > span {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  /* WCAG 2.2 target-size baseline for primary touch controls. */
+  .sidepanel .side-link,
+  .mobile-nav-close,
+  .mobile-nav-toggle,
+  .top-actions .btn,
+  .top-actions .icon-button,
+  .editor-pane-switch button,
+  .editor-toolbar button,
+  #mediaPicker,
+  .editor-mobile-actions .btn,
+  .admin-anchor-nav a,
+  .admin-section .form-control,
+  .admin-section .btn,
+  #graphSearch,
+  #graphStatus,
+  .graph-toolbar-actions button {
+    min-height: 44px;
+  }
+
+  .mobile-nav-close,
+  .mobile-nav-toggle,
+  .top-actions .icon-button,
+  .editor-toolbar button,
+  .graph-toolbar-actions button {
+    min-width: 44px;
+  }
+
+  .admin-anchor-nav a {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .graph-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .graph-search {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .graph-search input {
+    height: 44px;
+  }
+
+  .graph-toolbar select {
+    min-height: 44px;
+  }
+
+  .graph-toolbar-actions {
+    margin-left: 0;
+  }
+
+  .pdf-head,
+  .pdf-toolbar {
+    min-width: 0;
+  }
+
+  .pdf-toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .pdf-search {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .pdf-search-status {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .pdf-pagination,
+  .pdf-zoom {
+    max-width: 100%;
+  }
+
+  .pdf-stage {
+    max-width: 100%;
+    padding: 12px;
+  }
+
+  .admin-row-form,
+  .admin-form-grid,
+  .admin-form-grid.compact {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .admin-row-form {
+    overflow-x: visible;
+  }
+}
