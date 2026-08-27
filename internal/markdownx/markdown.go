@@ -2,11 +2,13 @@ package markdownx
 
 import (
 	"bytes"
+	"context"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/homiakus/docshub-next/internal/diagram/autotrace"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
@@ -16,11 +18,12 @@ import (
 )
 
 type Result struct {
-	HTML     string
-	Tags     []string
-	Links    []WikiLink
-	Mermaid  bool
-	Headings []Heading
+	HTML         string
+	Tags         []string
+	Links        []WikiLink
+	Mermaid      bool
+	HasAutoTrace bool
+	Headings     []Heading
 }
 
 type WikiLink struct {
@@ -38,6 +41,7 @@ var (
 	tagRe       = regexp.MustCompile(`(^|\s)#([\p{L}\p{N}_\-/]+)`)
 	linkRe      = regexp.MustCompile(`\[\[([^\]|#]+)(#[^\]|]+)?(?:\|([^\]]+))?\]\]`)
 	mermaidRe   = regexp.MustCompile("(?s)```mermaid\\s*\\n([\\s\\S]{0,1000}?)```")
+	autotraceRe = regexp.MustCompile("(?s)```autotrace\\s*\\n([\\s\\S]*?)\\n?```")
 	headingRe   = regexp.MustCompile(`<h([2-4])\s+id="([^"]+)"[^>]*>(.*?)</h[2-4]>`)
 	slugifyRe1  = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
 	slugifyRe2  = regexp.MustCompile(`-+`)
@@ -46,11 +50,23 @@ var (
 
 func Render(source string) (Result, error) {
 	hasMermaid := mermaidRe.MatchString(source)
+	hasAutoTrace := autotraceRe.MatchString(source)
 
 	// Replace mermaid blocks with placeholder divs before markdown processing
 	prepared := ReplaceWikiLinks(source)
 	if hasMermaid {
 		prepared = mermaidRe.ReplaceAllString(prepared, `<div class="mermaid">$1</div>`)
+	}
+	if hasAutoTrace {
+		engine := autotrace.NewEngine()
+		prepared = autotraceRe.ReplaceAllStringFunc(prepared, func(raw string) string {
+			m := autotraceRe.FindStringSubmatch(raw)
+			if len(m) < 2 {
+				return raw
+			}
+			diagRes, _ := engine.Render(context.Background(), m[1], autotrace.RenderOptions{})
+			return `<div class="autotrace-container">` + diagRes.SVG + `</div>`
+		})
 	}
 
 	md := goldmark.New(
@@ -70,7 +86,7 @@ func Render(source string) (Result, error) {
 
 	policy := bluemonday.UGCPolicy()
 	policy.AllowRelativeURLs(true)
-	policy.AllowAttrs("class").OnElements("code", "pre", "span", "div")
+	policy.AllowAttrs("class", "style").OnElements("code", "pre", "span", "div")
 	policy.AllowAttrs("data-slug").OnElements("a")
 	policy.AllowAttrs("target", "rel").OnElements("a")
 	policy.AllowElements("img", "audio", "video", "source")
@@ -79,12 +95,25 @@ func Render(source string) (Result, error) {
 	policy.AllowAttrs("poster").OnElements("video")
 	policy.AllowAttrs("src", "type").OnElements("source")
 
+	// Allow SVG elements for AutoTrace diagrams
+	policy.AllowElements("svg", "defs", "marker", "filter", "feDropShadow", "path", "text", "rect", "circle", "g")
+	policy.AllowAttrs("xmlns", "viewBox", "width", "height", "class", "style", "id").OnElements("svg")
+	policy.AllowAttrs("id", "viewBox", "refX", "refY", "markerWidth", "markerHeight", "orient").OnElements("marker")
+	policy.AllowAttrs("id", "x", "y", "width", "height").OnElements("filter")
+	policy.AllowAttrs("dx", "dy", "stdDeviation", "flood-color", "flood-opacity").OnElements("feDropShadow")
+	policy.AllowAttrs("d", "fill", "stroke", "stroke-width", "stroke-linejoin", "marker-end").OnElements("path")
+	policy.AllowAttrs("x", "y", "width", "height", "rx", "ry", "fill", "stroke", "stroke-width", "filter").OnElements("rect")
+	policy.AllowAttrs("cx", "cy", "r", "fill", "stroke", "stroke-width").OnElements("circle")
+	policy.AllowAttrs("x", "y", "font-family", "font-size", "font-weight", "fill", "text-anchor", "dy", "dx").OnElements("text")
+	policy.AllowAttrs("class", "id").OnElements("g")
+
 	return Result{
-		HTML:     policy.Sanitize(htmlStr),
-		Tags:     ExtractTags(source),
-		Links:    ExtractWikiLinks(source),
-		Mermaid:  hasMermaid,
-		Headings: headings,
+		HTML:         policy.Sanitize(htmlStr),
+		Tags:         ExtractTags(source),
+		Links:        ExtractWikiLinks(source),
+		Mermaid:      hasMermaid,
+		HasAutoTrace: hasAutoTrace,
+		Headings:     headings,
 	}, nil
 }
 

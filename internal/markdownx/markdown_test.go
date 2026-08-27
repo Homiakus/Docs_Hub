@@ -90,3 +90,18 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderAutoTraceBlock(t *testing.T) {
+	src := "# Architecture Diagram\n\n```autotrace\nversion: 1\nflow: left-to-right\nnodes:\n  - id: sensor\n    title: Sensor Unit\n    outputs: [data]\n  - id: processor\n    title: Processor\n    inputs: [data]\nedges:\n  - from: sensor.data\n    to: processor.data\n    label: SPI Bus\n```\n\nDiagram rendered successfully."
+	res, err := Render(src)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+	if !res.HasAutoTrace {
+		t.Errorf("expected HasAutoTrace=true")
+	}
+	if !strings.Contains(res.HTML, "autotrace-container") || !strings.Contains(res.HTML, "Sensor Unit") || !strings.Contains(res.HTML, "SPI Bus") {
+		t.Errorf("rendered HTML missing AutoTrace diagram components: %s", res.HTML)
+	}
+}
+
