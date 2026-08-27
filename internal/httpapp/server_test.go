@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/homiakus/docshub-next/internal/auth"
 	"github.com/homiakus/docshub-next/internal/config"
@@ -581,6 +583,57 @@ func TestStaticAssetsHaveCacheAndWorkerSecurityHeaders(t *testing.T) {
 	if !strings.Contains(csp, "worker-src 'self' blob: https://cdn.jsdelivr.net") || !strings.Contains(csp, "connect-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("CSP does not permit the pinned PDF worker: %q", csp)
 	}
+	if !strings.Contains(csp, "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net") {
+		t.Fatalf("CSP missing Google Fonts style-src: %q", csp)
+	}
+	if !strings.Contains(csp, "font-src 'self' data: https://fonts.gstatic.com https://frontend-cdn.perplexity.ai https://cdn.jsdelivr.net") {
+		t.Fatalf("CSP missing font-src: %q", csp)
+	}
+}
+
+func TestLoginVariantsAndBootstrapSync(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+
+	// Seed user with email
+	rawPass := "customPassword123"
+	hash, err := auth.HashPassword(rawPass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.ExecContext(context.Background(),
+		`INSERT INTO users(username, display_name, email, password_hash, role, is_active, created_at, updated_at)
+		 VALUES('john_doe', 'John Doe', 'john@example.com', ?, 'reader', 1, datetime('now'), datetime('now'))`,
+		hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Login with email
+	res, err := client.PostForm(ts.URL+"/login", url.Values{
+		"username": {"  john@example.com  "},
+		"password": {rawPass},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login with email status=%d, want %d", res.StatusCode, http.StatusSeeOther)
+	}
+
+	// 2. Login with uppercase username
+	res2, err := client.PostForm(ts.URL+"/login", url.Values{
+		"username": {"  JOHN_DOE  "},
+		"password": {rawPass},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res2.Body.Close()
+	if res2.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login with uppercase username status=%d, want %d", res2.StatusCode, http.StatusSeeOther)
+	}
 }
 
 func TestPresentationModeAccessControlAndRendering(t *testing.T) {
@@ -621,4 +674,80 @@ All good.`},
 		t.Fatalf("presentation output missing expected elements: %s", html)
 	}
 }
+
+func TestMagicLoginLifecycle(t *testing.T) {
+	ts, _, database := newTestApp(t)
+	defer ts.Close()
+
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("somePass123")
+	_, err := database.ExecContext(ctx,
+		`INSERT INTO users(username, display_name, password_hash, role, is_active, created_at, updated_at)
+		 VALUES('magic_user', 'Magic User', ?, 'editor', 1, datetime('now'), datetime('now'))`,
+		hash,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var userID int64
+	_ = database.QueryRowContext(ctx, `SELECT id FROM users WHERE username='magic_user'`).Scan(&userID)
+
+	rawToken := "112233445566778899aabbccddeeff00"
+	tokenHash := hex.EncodeToString(sha256Hash([]byte(rawToken)))
+
+	// 1. Insert active token valid for 10 minutes
+	expiresAt := time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339)
+	_, err = database.ExecContext(ctx,
+		`INSERT INTO auth_tokens(token_hash, user_id, expires_at, created_at) VALUES(?, ?, ?, datetime('now'))`,
+		tokenHash, userID, expiresAt,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Perform magic login
+	magicClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	res, err := magicClient.Get(ts.URL + "/auth/magic?token=" + rawToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("magic login status=%d, want %d", res.StatusCode, http.StatusSeeOther)
+	}
+
+	cookies := res.Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "dh_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil || sessionCookie.Value == "" {
+		t.Fatal("dh_session cookie was not set after magic login")
+	}
+
+	// 3. Second attempt with same token must fail
+	resReplay, err := magicClient.Get(ts.URL + "/auth/magic?token=" + rawToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resReplay.Body.Close()
+	replayBody, _ := io.ReadAll(resReplay.Body)
+	if !strings.Contains(string(replayBody), "уже была использована") {
+		t.Fatalf("replay of magic token did not fail as expected: %s", string(replayBody))
+	}
+}
+
+func sha256Hash(b []byte) []byte {
+	h := sha256.Sum256(b)
+	return h[:]
+}
+
 

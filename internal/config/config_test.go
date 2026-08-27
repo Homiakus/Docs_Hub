@@ -312,10 +312,17 @@ func TestIntEnv(t *testing.T) {
 
 func TestGetenv(t *testing.T) {
 	os.Setenv("TEST_GETENV_SET", "custom_value")
-	defer os.Unsetenv("TEST_GETENV_SET")
+	os.Setenv("TEST_GETENV_WITH_COMMENT", "info # debug, info, warn")
+	defer func() {
+		os.Unsetenv("TEST_GETENV_SET")
+		os.Unsetenv("TEST_GETENV_WITH_COMMENT")
+	}()
 
 	if v := getenv("TEST_GETENV_SET", "fallback"); v != "custom_value" {
 		t.Errorf("expected 'custom_value', got %s", v)
+	}
+	if v := getenv("TEST_GETENV_WITH_COMMENT", "fallback"); v != "info" {
+		t.Errorf("expected 'info', got %s", v)
 	}
 	if v := getenv("TEST_GETENV_MISSING", "fallback"); v != "fallback" {
 		t.Errorf("expected 'fallback', got %s", v)

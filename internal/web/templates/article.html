@@ -110,7 +110,28 @@
           {{end}}
         </div>
       </details>
+      <section class="inspector-section comments-panel" id="commentsSection" data-document-id="{{.Article.ID}}" data-can-comment="{{if .User}}true{{else}}false{{end}}">
+        <div class="comments-header">
+          <h2>05 // Комментарии</h2>
+          <span class="count-pill" id="commentCount">0</span>
+        </div>
+        <div class="comments-filter-bar" role="tablist" aria-label="Фильтр комментариев">
+          <button type="button" class="btn btn-sm btn-ghost active" data-comment-filter="all">Все</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-comment-filter="open">Открытые</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-comment-filter="resolved">Решённые</button>
+        </div>
+        <div class="comments-list" id="commentsList" aria-live="polite">
+          <p class="u-muted">Загрузка комментариев…</p>
+        </div>
+        {{if .User}}
+        <form class="general-comment-form" id="generalCommentForm">
+          <textarea id="generalCommentInput" class="form-control" rows="2" placeholder="Оставить отзыв к документу…" required></textarea>
+          <button type="submit" class="btn btn-secondary btn-sm">Отправить комментарий</button>
+        </form>
+        {{end}}
+      </section>
     </aside>
   </div>
 </div>
+<script defer src="/static/js/reader/comments.js"></script>
 {{end}}

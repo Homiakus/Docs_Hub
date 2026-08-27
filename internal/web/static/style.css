@@ -8,6 +8,7 @@
 @import url('./css/components/badge.css');
 @import url('./css/components/input.css');
 @import url('./css/components/dialog.css');
+@import url('./css/components/comments.css');
 @import url('./css/utilities.css');
 
 
@@ -3058,13 +3059,131 @@ code, pre {
 }
 
 .login-card > p {
-  margin: 0 0 28px;
+  margin: 0 0 20px;
   color: var(--text-secondary);
   font-size: 0.82rem;
 }
 
 .login-card .error {
   margin-bottom: 16px;
+}
+
+/* Auth Tabs */
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  margin-bottom: 20px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.auth-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-standard);
+}
+
+.auth-tab:hover {
+  color: var(--text-primary);
+}
+
+.auth-tab.active {
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.auth-tab .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Password wrap */
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrap .form-control {
+  padding-right: 42px;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--duration-fast);
+}
+
+.password-toggle-btn:hover {
+  opacity: 1;
+}
+
+/* Magic Link Helper Card */
+.magic-link-helper {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-primary));
+  font-size: 0.76rem;
+}
+
+.magic-helper-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.magic-link-helper ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.magic-link-helper li {
+  margin-bottom: 4px;
+}
+
+.magic-link-helper code {
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-subtle);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent);
 }
 
 .login-form {
@@ -3092,6 +3211,37 @@ code, pre {
   font-family: var(--font-mono) !important;
   font-size: 0.68rem !important;
   text-align: center;
+}
+
+/* Role Badges */
+.badge-role {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge-role.role-admin {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.badge-role.role-editor {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  border: 1px solid color-mix(in srgb, var(--status-success) 30%, transparent);
+}
+
+.badge-role.role-reader {
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 /* ==========================================================================

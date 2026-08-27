@@ -75,7 +75,10 @@
             <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"/></svg>
           </button>
           <span class="status-dot online" id="topPresenceDot" aria-hidden="true" title="Система активна"></span>
-          <span class="user-chip">{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span>
+          <span class="user-chip">
+            <span>{{if .User.DisplayName}}{{.User.DisplayName}}{{else}}{{.User.Username}}{{end}}</span>
+            <span class="badge-role role-{{.User.Role}}">{{.User.Role}}</span>
+          </span>
           {{if not (eq .User.Role "reader")}}
           <a class="btn btn-primary" href="/new">
             <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>

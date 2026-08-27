@@ -40,6 +40,7 @@ import (
 	"github.com/homiakus/docshub-next/internal/markdownx"
 	"github.com/homiakus/docshub-next/internal/repository"
 	"github.com/homiakus/docshub-next/internal/repository/sqlite"
+	"github.com/homiakus/docshub-next/internal/telegram"
 	"github.com/homiakus/docshub-next/internal/web"
 )
 
@@ -54,6 +55,7 @@ type Server struct {
 	commentRepo               repository.CommentRepository
 	sessions                  *authn.SessionManager
 	authorizer                authz.Authorizer
+	telegramBot               *telegram.Bot
 }
 
 type User struct {
@@ -255,6 +257,10 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 	return s, nil
 }
 
+func (s *Server) SetTelegramBot(bot *telegram.Bot) {
+	s.telegramBot = bot
+}
+
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.withUser)
@@ -268,6 +274,8 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/readyz", s.readyz)
 	r.Get("/login", s.loginForm)
 	r.With(s.loginRateLimiter()).Post("/login", s.login)
+	r.Get("/auth/magic", s.magicLogin)
+	r.Post("/api/v1/telegram/webhook", s.telegramWebhook)
 	r.Post("/logout", s.logout)
 	r.Get("/", s.requireLogin(s.home))
 	r.Get("/search", s.requireLogin(s.searchPage))
@@ -340,20 +348,33 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p P
 }
 
 func (s *Server) bootstrap(ctx context.Context) error {
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
+	if s.cfg.AdminUser == "" || s.cfg.AdminPassword == "" {
 		return nil
 	}
-	hash, err := auth.HashPassword(s.cfg.AdminPassword)
-	if err != nil {
+	now := time.Now().UTC().Format(time.RFC3339)
+	var adminID int64
+	var existingHash string
+	err := s.db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE LOWER(username)=LOWER(?)`, s.cfg.AdminUser).Scan(&adminID, &existingHash)
+	if err == sql.ErrNoRows {
+		hash, err := auth.HashPassword(s.cfg.AdminPassword)
+		if err != nil {
+			return fmt.Errorf("hash admin password: %w", err)
+		}
+		_, err = s.db.ExecContext(ctx, `INSERT INTO users(username, display_name, password_hash, role, is_active, created_at, updated_at) VALUES(?,?,?,?,1,?,?)`, s.cfg.AdminUser, "Administrator", hash, "admin", now, now)
+		return err
+	} else if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	_, err = s.db.ExecContext(ctx, `INSERT INTO users(username, display_name, password_hash, role, created_at, updated_at) VALUES(?,?,?,?,?,?)`, s.cfg.AdminUser, "Administrator", hash, "admin", now, now)
-	return err
+
+	if !auth.VerifyPassword(existingHash, s.cfg.AdminPassword) {
+		hash, err := auth.HashPassword(s.cfg.AdminPassword)
+		if err != nil {
+			return fmt.Errorf("hash admin password: %w", err)
+		}
+		_, err = s.db.ExecContext(ctx, `UPDATE users SET password_hash=?, is_active=1, role='admin', updated_at=? WHERE id=?`, hash, now, adminID)
+		return err
+	}
+	return nil
 }
 
 func (s *Server) home(w http.ResponseWriter, r *http.Request) {
@@ -699,10 +720,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	username, password := r.Form.Get("username"), r.Form.Get("password")
+	username := strings.TrimSpace(r.Form.Get("username"))
+	password := r.Form.Get("password")
 	var u User
 	var hash string
-	err := s.db.QueryRowContext(r.Context(), `SELECT id, username, display_name, role, password_hash FROM users WHERE username=? AND is_active=1`, username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &hash)
+	err := s.db.QueryRowContext(r.Context(), `SELECT id, username, display_name, role, password_hash FROM users WHERE (LOWER(username)=LOWER(?) OR LOWER(email)=LOWER(?)) AND is_active=1 LIMIT 1`, username, username).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &hash)
 	if err != nil || !auth.VerifyPassword(hash, password) {
 		s.render(w, r, "login", Page{Title: "Вход", Error: "Неверный логин или пароль"})
 		return
@@ -736,6 +758,102 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, &http.Cookie{Name: "dh_session", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) magicLogin(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		s.render(w, r, "login", Page{Title: "Вход", Error: "Недействительный или пустой токен входа"})
+		return
+	}
+
+	hash := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(hash[:])
+
+	var userID int64
+	var expiresAt string
+	var usedAt sql.NullString
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT user_id, expires_at, used_at FROM auth_tokens WHERE token_hash=?`,
+		tokenHash,
+	).Scan(&userID, &expiresAt, &usedAt)
+	if err != nil {
+		s.render(w, r, "login", Page{Title: "Вход", Error: "Недействительная или устаревшая ссылка"})
+		return
+	}
+
+	if usedAt.Valid {
+		s.render(w, r, "login", Page{Title: "Вход", Error: "Эта ссылка для входа уже была использована"})
+		return
+	}
+
+	expTime, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil || time.Now().UTC().After(expTime) {
+		s.render(w, r, "login", Page{Title: "Вход", Error: "Срок действия ссылки истёк (10 мин)"})
+		return
+	}
+
+	var u User
+	var isActive int
+	err = s.db.QueryRowContext(r.Context(),
+		`SELECT id, username, coalesce(display_name,''), role, is_active FROM users WHERE id=?`,
+		userID,
+	).Scan(&u.ID, &u.Username, &u.DisplayName, &u.Role, &isActive)
+	if err != nil || isActive == 0 {
+		s.render(w, r, "login", Page{Title: "Вход", Error: "Пользователь заблокирован или недоступен"})
+		return
+	}
+
+	// Mark token as used
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, _ = s.db.ExecContext(r.Context(), `UPDATE auth_tokens SET used_at=? WHERE token_hash=?`, now, tokenHash)
+
+	if s.sessions != nil {
+		cookieVal, _, expStr, err := s.sessions.CreateSession(r.Context(), u.ID, clientIP(r), r.UserAgent())
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		exp, _ := time.Parse(time.RFC3339, expStr)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "dh_session",
+			Value:    cookieVal,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   s.cfg.CookieSecure,
+			SameSite: http.SameSiteLaxMode,
+			Expires:  exp,
+		})
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) telegramWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.telegramBot == nil {
+		http.Error(w, "telegram bot not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	secretToken := r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.telegramBot.HandleWebhook(r.Context(), secretToken, body); err != nil {
+		s.log.Warn("telegram webhook error", "err", err)
+		http.Error(w, "unauthorized or invalid payload", http.StatusUnauthorized)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) notifyTelegram(ctx context.Context, msg string) {
+	if s.telegramBot != nil && s.cfg.TelegramNotificationsEnabled {
+		_ = s.telegramBot.SendNotification(ctx, msg)
+	}
 }
 
 func (s *Server) article(w http.ResponseWriter, r *http.Request) {
@@ -2986,7 +3104,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:;")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' data: https://fonts.gstatic.com https://frontend-cdn.perplexity.ai https://cdn.jsdelivr.net; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:;")
 		if s.cfg.TLS.Enabled || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
@@ -3031,7 +3149,7 @@ func (s *Server) withUser(next http.Handler) http.Handler {
 func (s *Server) csrfMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip safe methods: GET, HEAD, OPTIONS
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions || r.URL.Path == "/login" || r.URL.Path == "/api/v1/telegram/webhook" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -3171,8 +3289,10 @@ func (s *Server) loginRateLimiter() func(http.Handler) http.Handler {
 			b.lastSeen = now
 			if b.tokens < 1 {
 				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				w.Header().Set("Retry-After", "60")
-				http.Error(w, `{"error":"too many login attempts"}`, http.StatusTooManyRequests)
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"error":"too many login attempts"}`))
 				return
 			}
 			b.tokens--
@@ -3214,6 +3334,13 @@ func (s *Server) rateLimiter() func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			// Do not rate limit static assets, health checks, or browser icon requests
+			if strings.HasPrefix(path, "/static/") || path == "/healthz" || path == "/readyz" || path == "/favicon.ico" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			ip := clientIP(r)
 			mu.Lock()
 			b, ok := buckets[ip]
@@ -3227,8 +3354,10 @@ func (s *Server) rateLimiter() func(http.Handler) http.Handler {
 			b.lastSeen = now
 			if b.tokens < 1 {
 				mu.Unlock()
-				w.Header().Set("Retry-After", "60")
-				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.Header().Set("Retry-After", "5")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
 				return
 			}
 			b.tokens--

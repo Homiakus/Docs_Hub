@@ -1,0 +1,298 @@
+{
+  "version": 1,
+  "id": "default",
+  "name": "Balanced development loop",
+  "goal": "Improve the project until all hard quality gates pass and the configured optimization objectives reach their targets without regressing previously healthy behavior.",
+  "strategy": "smallest-verifiable-improvement",
+  "spec_files": [
+    "CLAUDE.md",
+    "docs/*.md",
+    "specs/*.md"
+  ],
+  "target_score": 100,
+  "gates": [
+    {
+      "name": "tests",
+      "command": "go test ./...",
+      "required": true,
+      "weight": 4,
+      "timeout_seconds": 900
+    },
+    {
+      "name": "vet",
+      "command": "go vet ./...",
+      "required": true,
+      "weight": 2,
+      "timeout_seconds": 600
+    },
+    {
+      "name": "format",
+      "command": "gofmt -l .",
+      "required": true,
+      "weight": 1,
+      "timeout_seconds": 120,
+      "output_must_be_empty": true
+    }
+  ],
+  "qualitative": [
+    {
+      "name": "spec-compliance",
+      "description": "Verify code changes adhere to project specification documents (.md) and maintain clean architecture.",
+      "weight": 1,
+      "min_score": 80
+    },
+    {
+      "name": "code-quality-and-safety",
+      "description": "Verify no security risks, unhandled errors, secret leaks, or broken patterns are introduced.",
+      "weight": 1,
+      "min_score": 80
+    },
+    {
+      "name": "test-coverage-and-automation",
+      "description": "Verify project contains automated test suite covering core functionality, and all tests pass with zero failures.",
+      "weight": 2,
+      "min_score": 85
+    },
+    {
+      "name": "auto-documentation-sync",
+      "description": "Verify specification documents (CLAUDE.md, PRD.md, ARCHITECTURE.md, CHANGELOG.md) are complete, accurate, and updated to reflect any code or feature additions.",
+      "weight": 2,
+      "min_score": 85
+    }
+  ],
+  "quality_layers": [
+    {
+      "id": "software-architecture",
+      "name": "Software Architecture \u0026 SOLID Layer",
+      "mode": "sequential",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Enforce SOLID principles, DRY, modular component isolation, and clean error context wrapping.",
+        "Verify zero circular dependencies and clean package boundaries."
+      ],
+      "mcp_servers": [
+        "gopls-mcp-server",
+        "lsp-mcp-server",
+        "architecture-graph-mcp"
+      ],
+      "skills": [
+        "go_workspace",
+        "go_package_api",
+        "go_file_context",
+        "solid-validator"
+      ]
+    },
+    {
+      "id": "anti-slop",
+      "name": "Anti-AI-Slop Clean Code Layer",
+      "mode": "sequential",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Eliminate generic placeholders, low-value boilerplate, hollow code fallbacks, and redundant comments.",
+        "Verify no lazy snippet stubs or empty error swallowing blocks."
+      ],
+      "mcp_servers": [
+        "ast-grep-mcp",
+        "semgrep-mcp",
+        "code-hygiene-mcp"
+      ],
+      "skills": [
+        "slop-detector",
+        "placeholder-pruner",
+        "dead-code-remover"
+      ]
+    },
+    {
+      "id": "security-auditing",
+      "name": "Security Auditing \u0026 OWASP Layer",
+      "mode": "sequential",
+      "weight": 3,
+      "min_score": 90,
+      "criteria": [
+        "Audit against OWASP Top 10 vulnerabilities: zero secret leaks, input validation, SQLi/XSS/SSRF prevention.",
+        "Verify safe memory handling, path sanitization, and secure dependency usage."
+      ],
+      "mcp_servers": [
+        "trivy-mcp",
+        "semgrep-mcp",
+        "go-vulncheck-mcp"
+      ],
+      "skills": [
+        "go_vulncheck",
+        "secret-scanner",
+        "owasp-checker",
+        "input-sanitizer"
+      ]
+    },
+    {
+      "id": "refactoring-clean-code",
+      "name": "Refactoring \u0026 Code Smells Layer",
+      "mode": "sequential",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Eliminate code smells, keep cyclomatic complexity \u003c 10 per function, and clean variable naming.",
+        "Remove unused dead code, redundant imports, and magic constants."
+      ],
+      "mcp_servers": [
+        "gopls-mcp-server",
+        "ast-grep-mcp",
+        "refactor-mcp"
+      ],
+      "skills": [
+        "go_rename_symbol",
+        "cyclomatic-complexity-checker",
+        "duplication-finder"
+      ]
+    },
+    {
+      "id": "automated-testing",
+      "name": "Automated Testing \u0026 Verification Layer",
+      "mode": "sequential",
+      "weight": 3,
+      "min_score": 90,
+      "criteria": [
+        "Enforce 100% automated test suite execution with zero failing assertions.",
+        "Ensure all new features, API endpoints, or UI components are covered by unit/E2E test runners."
+      ],
+      "mcp_servers": [
+        "chrome-devtools-mcp",
+        "playwright-mcp",
+        "go-test-mcp"
+      ],
+      "skills": [
+        "go_diagnostics",
+        "browser_subagent",
+        "coverage-verifier",
+        "e2e-runner"
+      ]
+    },
+    {
+      "id": "performance-optimization",
+      "name": "Performance \u0026 Memory Optimization Layer",
+      "mode": "parallel",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Optimize algorithmic complexity O(N), prevent memory leaks, and optimize query/draw calls.",
+        "Verify zero blocking synchronous calls on main UI loops or event dispatchers."
+      ],
+      "mcp_servers": [
+        "chrome-devtools-mcp",
+        "pprof-mcp",
+        "lighthouse-mcp"
+      ],
+      "skills": [
+        "performance_analyze_insight",
+        "lighthouse_audit",
+        "heap-snapshot-analyzer"
+      ]
+    },
+    {
+      "id": "ui-ux-design",
+      "name": "UI/UX Designer Aesthetic Layer",
+      "mode": "parallel",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Enforce modern web design aesthetics: curated HSL color tokens, dark mode, glassmorphism, Google Fonts, and dynamic micro-animations.",
+        "Verify responsive grid layout and interactive visual rendering excellence."
+      ],
+      "mcp_servers": [
+        "chrome-devtools-mcp",
+        "figma-mcp",
+        "design-tokens-mcp"
+      ],
+      "skills": [
+        "generate_image",
+        "take_screenshot",
+        "browser_subagent",
+        "hsl-validator"
+      ]
+    },
+    {
+      "id": "accessibility-a11y",
+      "name": "Accessibility \u0026 A11y Layer",
+      "mode": "parallel",
+      "weight": 1,
+      "min_score": 80,
+      "criteria": [
+        "Enforce ARIA roles, semantic HTML5 elements, keyboard navigation, and contrast ratio compliance."
+      ],
+      "mcp_servers": [
+        "axe-core-mcp",
+        "chrome-devtools-mcp",
+        "a11y-mcp"
+      ],
+      "skills": [
+        "lighthouse_audit",
+        "aria-checker",
+        "keyboard-nav-verifier"
+      ]
+    },
+    {
+      "id": "docs-sync",
+      "name": "Documentation \u0026 Spec Sync Layer",
+      "mode": "parallel",
+      "weight": 2,
+      "min_score": 85,
+      "criteria": [
+        "Verify specification documents (CLAUDE.md, PRD.md, ARCHITECTURE.md, CHANGELOG.md) are complete and synchronized."
+      ],
+      "mcp_servers": [
+        "obsidian-vault-mcp",
+        "markdown-mcp",
+        "typedoc-mcp"
+      ],
+      "skills": [
+        "spec-sync-checker",
+        "prd-coverage-auditor",
+        "changelog-updater"
+      ]
+    },
+    {
+      "id": "github-workflow",
+      "name": "GitHub Workflow \u0026 CI/CD Layer",
+      "mode": "parallel",
+      "weight": 1,
+      "min_score": 80,
+      "criteria": [
+        "Enforce clean commit standards, git diff hygiene, PR descriptions, and workflow triggers."
+      ],
+      "mcp_servers": [
+        "github-mcp",
+        "git-mcp",
+        "ci-cd-mcp"
+      ],
+      "skills": [
+        "git-diff-hygiene",
+        "conventional-commit-checker",
+        "pr-builder"
+      ]
+    }
+  ],
+  "limits": {
+    "max_iterations": 8,
+    "max_turns_per_iteration": 15,
+    "max_budget_usd_per_iteration": 3,
+    "max_verifier_budget_usd": 0.75,
+    "max_total_budget_usd": 15,
+    "timeout_minutes": 90,
+    "stagnation_limit": 3,
+    "stable_iterations": 1
+  },
+  "safety": {
+    "require_clean_start": false,
+    "allow_commit": false,
+    "allow_push": false,
+    "allow_dependency_changes": false,
+    "stop_on_regression": true
+  },
+  "claude": {
+    "model": "deepseek-v4-flash",
+    "permission_mode": "acceptEdits",
+    "continue_session": true
+  }
+}

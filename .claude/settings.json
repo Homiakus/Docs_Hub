@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "ecc@ecc": true,
+    "frontend-design@claude-plugins-official": true,
+    "mcp-server-dev@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "web-search@claude-plugins-official": true
+  },
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1m]",
+    "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "Bash(rm *)",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "Bash(git *)",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "Bash(curl *)",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "Bash(wget *)",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "PowerShell(Remove-Item *)",
+            "timeout": 15,
+            "type": "command"
+          },
+          {
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/ccs-guard.ps1"
+            ],
+            "command": "powershell.exe",
+            "if": "PowerShell(git *)",
+            "timeout": 15,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell"
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(go test ./...)",
+      "Bash(go test *)",
+      "Bash(go vet ./...)",
+      "Bash(go fmt ./...)",
+      "Bash(gofmt -w *)",
+      "Bash(go generate ./...)",
+      "Bash(go mod tidy)",
+      "Bash(go mod verify)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(git show *)",
+      "Bash(rg *)",
+      "Bash(fd *)",
+      "mcp__gopls__*",
+      "mcp__serena__*",
+      "mcp__context7__*",
+      "mcp__repomix__*"
+    ],
+    "ask": [
+      "Bash(go get *)",
+      "Bash(go install *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git reset *)",
+      "Bash(git clean *)",
+      "Bash(docker *)",
+      "Bash(podman *)",
+      "Bash(kubectl *)",
+      "Bash(terraform *)",
+      "Bash(semgrep *)",
+      "Bash(gh pr create *)",
+      "Agent(model:opus)",
+      "Agent(isolation:worktree)",
+      "mcp__github__*",
+      "mcp__playwright__*"
+    ],
+    "defaultMode": "acceptEdits",
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./config/credentials.json)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/id_rsa*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Edit(./.env*)",
+      "Edit(./secrets/**)",
+      "Bash(sudo *)",
+      "Bash(rm -rf / *)",
+      "Bash(rm -rf ~ *)",
+      "Bash(curl * | sh *)",
+      "Bash(wget * | sh *)",
+      "PowerShell(Remove-Item -Recurse -Force C:\\*)"
+    ]
+  }
+}

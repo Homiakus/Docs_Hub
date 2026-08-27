@@ -56,6 +56,9 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'quote':
         replacement = `\n> ${selection || 'Цитата или примечание'}\n`;
         break;
+      case 'callout':
+        replacement = `\n> [!NOTE]\n> ${selection || 'Важная контекстная информация'}\n`;
+        break;
       case 'mermaid':
         replacement = `\n${bt}mermaid\ngraph TD\n    A[Начало] --> B[Процесс]\n${bt}\n`;
         break;

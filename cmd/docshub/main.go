@@ -73,6 +73,27 @@ func main() {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("Docs Hub Next started", "version", Version, "addr", cfg.Addr, "db", cfg.DBPath, "tls", cfg.TLS.Enabled, "log_level", cfg.LogLevel)
+
+		// Generate instant 1-click admin magic link
+		if rawToken, err := app.GenerateAdminMagicLink(ctx, cfg.AdminUser); err == nil && rawToken != "" {
+			magicLink := rawToken
+			if !strings.HasPrefix(rawToken, "http://") && !strings.HasPrefix(rawToken, "https://") {
+				port := "8080"
+				if parts := strings.Split(cfg.Addr, ":"); len(parts) > 1 && parts[1] != "" {
+					port = parts[1]
+				}
+				scheme := "http"
+				if cfg.TLS.Enabled {
+					scheme = "https"
+				}
+				magicLink = fmt.Sprintf("%s://localhost:%s/auth/magic?token=%s", scheme, port, rawToken)
+			}
+			fmt.Print("\n", strings.Repeat("=", 68), "\n")
+			fmt.Println("🔑 ССЫЛКА ДЛЯ МГНОВЕННОГО ВХОДА (Magic Link, 10 минут):")
+			fmt.Printf("👉 %s\n", magicLink)
+			fmt.Print(strings.Repeat("=", 68), "\n\n")
+		}
+
 		if cfg.TLS.Enabled {
 			errCh <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
 		} else {

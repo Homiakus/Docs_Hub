@@ -71,6 +71,9 @@
           <button type="button" data-editor-action="quote" title="Цитата">
             <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.75-2-2-2H4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 0 4-1 6-1 8zm14 0c3 0 7-1 7-8V5c0-1.25-.75-2-2-2h-4c-1.25 0-2 .75-2 2v6c0 1.25.75 2 2 2 0 4-1 6-1 8z"/></svg>
           </button>
+          <button type="button" data-editor-action="callout" title="Блок примечания (Callout)">
+            <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </button>
         </div>
         <div class="toolbar-group" role="group" aria-label="Вставка">
           <button type="button" data-editor-action="codeblock" title="Блок кода">{ }</button>
@@ -81,7 +84,7 @@
             <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.59 8.59l6.82 6.82"/></svg>
           </button>
         </div>
-        <span class="toolbar-help">Markdown · <kbd>Ctrl</kbd> + <kbd>S</kbd></span>
+        <span class="toolbar-help">Markdown · <kbd>/</kbd> меню · <kbd>Ctrl+S</kbd></span>
       </div>
 
       <div class="editor-pane-switch" role="tablist" aria-label="Режим редактора">
@@ -93,7 +96,7 @@
         <div class="editor-pane" id="editorPane" role="tabpanel" aria-labelledby="editorTabEdit">
           <div class="pane-label"><span>Markdown Canvas</span><small id="editorWordCount">0 слов</small></div>
           <label class="sr-only" for="content">Текст документа в Markdown</label>
-          <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Поддерживается полный Markdown, таблицы, диаграммы и wiki-ссылки…">{{.Article.Content}}</textarea>
+          <textarea name="content" id="content" spellcheck="true" data-upload-endpoint="/api/uploads" placeholder="Начните писать. Поддерживается полный Markdown, таблицы, диаграммы и wiki-ссылки… Введите / для быстрых команд.">{{.Article.Content}}</textarea>
         </div>
         <div class="preview-pane" id="previewPane" role="tabpanel" aria-labelledby="editorTabPreview">
           <div class="pane-label"><span>Live Preview</span><small>Синхронизируется на лету</small></div>
@@ -106,7 +109,7 @@
         <span class="dropzone-icon" aria-hidden="true">
           <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         </span>
-        <div><strong>Вложения и медиа</strong><p>Перетащите файлы сюда или выберите изображения, медиа и PDF до 64 МБ.</p></div>
+        <div><strong>Вложения и медиа</strong><p>Перетащите файлы сюда или вставьте скриншот из буфера (Ctrl+V).</p></div>
         <button class="btn btn-secondary btn-sm" type="button" id="mediaPicker">Выбрать файлы</button>
       </div>
     </section>
@@ -160,6 +163,8 @@
 <script defer src="/static/js/editor/autosave.js"></script>
 <script defer src="/static/js/editor/toolbar.js"></script>
 <script defer src="/static/js/editor/table-builder.js"></script>
+<script defer src="/static/js/editor/slash-menu.js"></script>
+<script defer src="/static/js/editor/media-upload.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded',()=>{
   if(window.DocumentAutosave){new DocumentAutosave({

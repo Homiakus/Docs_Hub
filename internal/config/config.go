@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -20,6 +21,8 @@ type Config struct {
 	TelegramBotToken           string
 	TelegramChatID             string
 	TelegramNotificationsEnabled bool
+	TelegramWebhookURL         string
+	TelegramWebhookSecret      string
 	TLS                        TLSConfig
 	LogLevel                   string
 	RateLimit                  RateLimitConfig
@@ -52,6 +55,8 @@ func Load() Config {
 		TelegramBotToken:             getenv("TELEGRAM_BOT_TOKEN", ""),
 		TelegramChatID:               getenv("TELEGRAM_CHAT_ID", ""),
 		TelegramNotificationsEnabled: os.Getenv("TELEGRAM_NOTIFICATIONS_ENABLED") == "1" || os.Getenv("TELEGRAM_NOTIFICATIONS_ENABLED") == "true",
+		TelegramWebhookURL:           getenv("TELEGRAM_WEBHOOK_URL", ""),
+		TelegramWebhookSecret:        getenv("TELEGRAM_WEBHOOK_SECRET", ""),
 		TLS: TLSConfig{
 			Enabled:  os.Getenv("TLS_ENABLED") == "1" || os.Getenv("TLS_ENABLED") == "true",
 			CertFile: getenv("TLS_CERT_FILE", ""),
@@ -99,7 +104,12 @@ func (c Config) Validate() error {
 
 func getenv(k, fallback string) string {
 	if v := os.Getenv(k); v != "" {
-		return v
+		if idx := strings.Index(v, "#"); idx != -1 {
+			v = strings.TrimSpace(v[:idx])
+		}
+		if v != "" {
+			return v
+		}
 	}
 	return fallback
 }

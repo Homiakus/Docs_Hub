@@ -29,6 +29,13 @@ function Load-Env {
                 if ($idx -gt 0) {
                     $key = $line.Substring(0, $idx).Trim()
                     $val = $line.Substring($idx + 1).Trim()
+                    if ($val -match '^"(.*)"\s*(#.*)?$') {
+                        $val = $matches[1]
+                    } elseif ($val -match "^'(.*)'\s*(#.*)?$") {
+                        $val = $matches[1]
+                    } elseif ($val.Contains("#")) {
+                        $val = $val.Substring(0, $val.IndexOf("#")).Trim()
+                    }
                     $config[$key] = $val
                 }
             }
