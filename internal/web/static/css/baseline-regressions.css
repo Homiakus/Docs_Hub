@@ -23,12 +23,11 @@
   min-width: 0;
 }
 
-/* Small tertiary text must still meet WCAG AA on the light surfaces used by
- * dashboard metadata. */
-.eyebrow,
-.metric-index,
-.metric-card > div > span {
-  color: var(--text-secondary);
+/* The previous light-theme tertiary token (#757b8c) dropped below WCAG AA on
+ * both canvas and card surfaces for the small metadata typography used across
+ * the shell. Keep the hierarchy but lift contrast globally for light mode. */
+html[data-theme="light"] {
+  --text-tertiary: #666b78;
 }
 
 @media (max-width: 900px) {
