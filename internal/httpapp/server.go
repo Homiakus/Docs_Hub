@@ -48,6 +48,7 @@ type Server struct {
 	log                       *slog.Logger
 	domainProjectService      *application.DomainProjectService
 	domainProjectQueryService *application.DomainProjectQueryService
+	searchService             application.SearchService
 	authorizer                authz.Authorizer
 }
 
@@ -213,9 +214,11 @@ func New(cfg config.Config, d *db.DB, logger *slog.Logger) (*Server, error) {
 	if d != nil {
 		domainRepo := sqlite.NewDomainRepository(d)
 		projectRepo := sqlite.NewProjectRepository(d)
+		articleRepo := sqlite.NewArticleRepository(d, logger)
 		secAdapter := authz.NewSecurityAdapter(d)
 		s.domainProjectService = application.NewDomainProjectService(domainRepo, projectRepo, secAdapter)
 		s.domainProjectQueryService = application.NewDomainProjectQueryService(domainRepo, domainRepo, projectRepo, secAdapter)
+		s.searchService = application.NewSearchService(articleRepo)
 		s.authorizer = secAdapter
 	}
 	if err := s.bootstrap(context.Background()); err != nil {
@@ -392,24 +395,34 @@ func (s *Server) searchPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) searchSuggestAPI(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	arts, err := s.listArticles(r.Context(), userFrom(r.Context()), q)
+	u := userFrom(r.Context())
+	var suggestions []application.SearchSuggestion
+	var err error
+	if s.searchService != nil {
+		var domainUser *domain.User
+		if u != nil {
+			domainUser = &domain.User{ID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Role: u.Role, Active: true}
+		}
+		suggestions, err = s.searchService.Suggest(r.Context(), domainUser, q, 8)
+	} else {
+		arts, listErr := s.listArticles(r.Context(), u, q)
+		if listErr != nil {
+			err = listErr
+		} else {
+			for _, a := range arts {
+				suggestions = append(suggestions, application.SearchSuggestion{Title: a.Title, Slug: a.Slug})
+				if len(suggestions) >= 8 {
+					break
+				}
+			}
+		}
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	type item struct {
-		Title string `json:"title"`
-		Slug  string `json:"slug"`
-	}
-	var results []item
-	for _, a := range arts {
-		results = append(results, item{Title: a.Title, Slug: a.Slug})
-		if len(results) >= 8 {
-			break
-		}
-	}
 	w.Header().Set("content-type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"suggestions": results})
+	_ = json.NewEncoder(w).Encode(map[string]any{"suggestions": suggestions})
 }
 
 func (s *Server) saveDraftAPI(w http.ResponseWriter, r *http.Request) {
