@@ -263,3 +263,51 @@ func (s *Server) apiCreateProject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]any{"project": toProjectDTO(*created)})
 }
+
+func (s *Server) domainsPage(w http.ResponseWriter, r *http.Request) {
+	actor := s.actorFrom(r)
+	var domains []domain.Domain
+	if s.domainProjectQueryService != nil {
+		domains, _ = s.domainProjectQueryService.ListDomains(r.Context(), actor, false)
+	}
+	s.render(w, r, "domains/index", Page{
+		Title:   "Домены знаний",
+		Domains: domains,
+	})
+}
+
+func (s *Server) showDomainPage(w http.ResponseWriter, r *http.Request) {
+	actor := s.actorFrom(r)
+	slug := slugParam(r)
+	if slug == "" || s.domainProjectQueryService == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	domains, err := s.domainProjectQueryService.ListDomains(r.Context(), actor, false)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	var current *domain.Domain
+	for _, d := range domains {
+		if d.Slug == slug {
+			domCopy := d
+			current = &domCopy
+			break
+		}
+	}
+	if current == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	projects, _ := s.domainProjectQueryService.ListProjects(r.Context(), actor, current.ID, false)
+	s.render(w, r, "domains/show", Page{
+		Title:         current.Name,
+		CurrentDomain: current,
+		Projects:      projects,
+	})
+}
+

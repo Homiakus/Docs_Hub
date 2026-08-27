@@ -1,0 +1,44 @@
+{{define "content"}}
+<div class="domain-show-page page-stack">
+  <header class="pagehead">
+    <div>
+      <span class="eyebrow"><a href="/domains">Домены</a> // {{.CurrentDomain.Name}}</span>
+      <h1>{{.CurrentDomain.Name}}</h1>
+      <p>{{if .CurrentDomain.Description}}{{.CurrentDomain.Description}}{{else}}Домен знаний и входящие проекты{{end}}</p>
+    </div>
+    {{if not (eq .User.Role "reader")}}
+    <a class="btn btn-primary" href="/new">
+      <svg class="icon icon-xs" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Новый документ</span>
+    </a>
+    {{end}}
+  </header>
+
+  <section class="section-block">
+    <div class="section-head">
+      <h2>Проекты домена</h2>
+    </div>
+    <div class="space-grid" aria-label="Список проектов">
+      {{range .Projects}}
+      <a class="space-card" href="/spaces/{{.Slug}}">
+        <span class="space-card-icon" aria-hidden="true">
+          <svg class="icon icon-md" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        </span>
+        <div>
+          <h2>{{.Name}}</h2>
+          <p>{{if .Description}}{{.Description}}{{else}}Проект документации{{end}}</p>
+        </div>
+        <footer>
+          <span class="badge">{{.AccessMode}}</span>
+          <svg class="icon icon-xs" viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </footer>
+      </a>
+      {{else}}
+      <div class="empty-state">
+        <p>В этом домене пока нет проектов.</p>
+      </div>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}
