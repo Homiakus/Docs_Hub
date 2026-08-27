@@ -24,4 +24,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   bodyObserver.observe(document.body, { childList: true, subtree: true });
+
+  /* Chromium exposes <summary> inconsistently through role queries. Keep the
+   * native disclosure behavior while making the interactive contract explicit
+   * to assistive technology and regression tests. */
+  document.querySelectorAll('.editor-settings > summary').forEach((summary) => {
+    summary.setAttribute('role', 'button');
+  });
 });
