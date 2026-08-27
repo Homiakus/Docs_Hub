@@ -582,3 +582,43 @@ func TestStaticAssetsHaveCacheAndWorkerSecurityHeaders(t *testing.T) {
 		t.Fatalf("CSP does not permit the pinned PDF worker: %q", csp)
 	}
 }
+
+func TestPresentationModeAccessControlAndRendering(t *testing.T) {
+	ts, client, database := newTestApp(t)
+	defer ts.Close()
+	csrf := loginTestUser(t, client, ts.URL, database)
+
+	// 1. Create a slide document
+	saveArticle(t, client, ts.URL, url.Values{
+		"slug":       {"team-presentation"},
+		"title":      {"Team Presentation"},
+		"visibility": {"authenticated"},
+		"content": {`# Slide 1: Welcome
+Welcome everyone!
+
+:::notes
+Speaker note for slide 1.
+:::
+
+---
+
+## Slide 2: Next Steps
+All good.`},
+	}, csrf)
+
+	// 2. Fetch presentation as authorized user
+	res, err := client.Get(ts.URL + "/p/team-presentation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("presentation status=%d want %d", res.StatusCode, http.StatusOK)
+	}
+	body, _ := io.ReadAll(res.Body)
+	html := string(body)
+	if !strings.Contains(html, "presentation-view") || !strings.Contains(html, "Team Presentation") || !strings.Contains(html, "Speaker note for slide 1.") {
+		t.Fatalf("presentation output missing expected elements: %s", html)
+	}
+}
+
