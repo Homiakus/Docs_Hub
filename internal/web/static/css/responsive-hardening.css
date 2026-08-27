@@ -1,0 +1,186 @@
+/*
+ * Responsive hardening layer.
+ *
+ * Loaded after style.css so these rules express cross-page invariants rather
+ * than page-specific workarounds. Keep page-level overflow inside the owning
+ * component and preserve 44px touch targets on tablet/mobile layouts.
+ */
+
+/* .layout lives inside .app-main, next to the sidebar. Viewport units here
+ * double-count the sidebar and can make a 1440px viewport 1618px wide. */
+.app-main > .layout {
+  width: min(1520px, 100%);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.app-main,
+.layout,
+.page-stack,
+.editor,
+.editor-workspace,
+.editor-canvas,
+.editor-settings,
+.pdf-viewer-page,
+.pdf-workspace,
+.pdf-stage,
+.graph-shell,
+.admin-workspace {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pagehead > *,
+.editor-head > *,
+.pdf-head > * {
+  min-width: 0;
+}
+
+.pagehead h1,
+.pdf-head h1,
+.markdown,
+.settings-note,
+.notice,
+.error {
+  overflow-wrap: anywhere;
+}
+
+/* A closed modal must not expose focusable descendants to the accessibility
+ * tree. JS also applies inert; this is the no-JS/failure-safe rendering rule. */
+[aria-hidden="true"] > [role="dialog"],
+[role="dialog"][aria-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Wide component content scrolls inside its own surface, never at page level. */
+.pdf-workspace,
+.pdf-stage,
+.table-scroll,
+.table-wrap,
+.admin-table-wrap,
+.data-grid-wrap {
+  max-width: 100%;
+}
+
+.pdf-stage,
+.table-scroll,
+.table-wrap,
+.admin-table-wrap,
+.data-grid-wrap {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.pdf-canvas,
+#pdfCanvas {
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  /* WCAG-sized touch surfaces. Width is only forced for compact controls;
+   * text inputs/links already have sufficient inline size. */
+  .mobile-nav-toggle,
+  .mobile-nav-close,
+  .icon-button,
+  .toolbar-group button,
+  .graph-toolbar-actions button,
+  .pdf-tool-button,
+  #editorTabEdit,
+  #editorTabPreview {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .global-search,
+  .side-link,
+  .btn,
+  .form-control,
+  .admin-anchor-nav a,
+  #graphSearch,
+  #graphStatus,
+  #mediaPicker,
+  .editor-settings > summary,
+  .pdf-search input,
+  .pdf-scale-button,
+  .pdf-pagination input {
+    min-height: 44px;
+  }
+
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .side-link,
+  .admin-anchor-nav a,
+  .editor-settings > summary {
+    align-items: center;
+  }
+
+  .admin-anchor-nav a {
+    display: inline-flex;
+  }
+
+  .pdf-head {
+    align-items: stretch;
+  }
+
+  .pdf-head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .pdf-head-actions .btn {
+    flex: 1 1 150px;
+  }
+
+  .pdf-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pdf-pagination,
+  .pdf-zoom,
+  .pdf-search,
+  .pdf-search-status {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .pdf-pagination,
+  .pdf-zoom {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .pdf-search {
+    width: 100%;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .pdf-search-status {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .pdf-search {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pdf-search > span[aria-hidden="true"] {
+    display: none;
+  }
+
+  .pdf-search input {
+    grid-column: 1;
+  }
+
+  .pdf-search .pdf-tool-button {
+    grid-column: auto;
+  }
+}
