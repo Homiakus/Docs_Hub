@@ -39,7 +39,11 @@ func (a *SecurityAdapter) EnsureDomainWorkspace(ctx context.Context, actor appli
 	if err := a.requireOrganizationMembership(ctx, actor); err != nil {
 		return "", err
 	}
-	if err := a.requireRolePermission(ctx, actor.UserID, application.WorkspacePermissionManage); err != nil {
+	role, err := a.activeUserRole(ctx, actor.UserID)
+	if err != nil {
+		return "", err
+	}
+	if err := roleAllowsWorkspacePermission(role, application.WorkspacePermissionManage); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("ws_dom_%d_%s", req.OrganizationID, req.StableKey), nil
@@ -80,7 +84,7 @@ func (a *SecurityAdapter) RequireWorkspacePermission(ctx context.Context, actor 
 	}
 	kind, projectID, accessMode, err := a.lookupWorkspace(ctx, actor.OrganizationID, workspaceID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errorsIsNoRows(err) {
 			return ErrForbidden
 		}
 		return err
@@ -251,21 +255,27 @@ func (a *SecurityAdapter) requireOrganizationMembership(ctx context.Context, act
 		  )
 		LIMIT 1
 	`, actor.OrganizationID, actor.UserID, actor.UserID).Scan(&one)
-	if err == sql.ErrNoRows {
+	if errorsIsNoRows(err) {
 		return ErrForbidden
 	}
 	return err
 }
 
 func (a *SecurityAdapter) activeUserRole(ctx context.Context, userID int64) (string, error) {
+	if a.db == nil || userID <= 0 {
+		return "", ErrForbidden
+	}
 	var role string
 	var active bool
 	err := a.db.QueryRowContext(ctx, `SELECT role, is_active FROM users WHERE id = ?`, userID).Scan(&role, &active)
-	if err == sql.ErrNoRows || !active {
+	if errorsIsNoRows(err) {
 		return "", ErrForbidden
 	}
 	if err != nil {
 		return "", err
+	}
+	if !active {
+		return "", ErrForbidden
 	}
 	return role, nil
 }
@@ -335,13 +345,17 @@ func (a *SecurityAdapter) hasExplicitProjectGrant(ctx context.Context, userID, o
 			  )
 		)
 	`, projectID, userID, userID, organizationID, projectID, userID, userID).Scan(&one)
-	if err == sql.ErrNoRows {
+	if errorsIsNoRows(err) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func errorsIsNoRows(err error) bool {
+	return err == sql.ErrNoRows
 }
 
 // Check keeps legacy document authorization behavior while the remaining HTTP
