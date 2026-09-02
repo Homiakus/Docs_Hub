@@ -38,16 +38,14 @@ func (s *Server) apiGetComments(w http.ResponseWriter, r *http.Request) {
 
 	u := userFrom(r.Context())
 	article, err := s.dbArticleByID(r.Context(), docID)
-	if err != nil {
+	if err != nil || !s.commentDocumentInActorOrganization(r, article) {
 		writeJSONError(w, http.StatusNotFound, "not_found", "Документ не найден")
 		return
 	}
-
 	if !s.canViewArticle(r.Context(), u, *article) {
 		writeJSONError(w, http.StatusForbidden, "forbidden", "Нет доступа к комментариям этого документа")
 		return
 	}
-
 	if s.commentRepo == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "service_unavailable", "Сервис комментариев недоступен")
 		return
@@ -76,13 +74,16 @@ func (s *Server) apiCreateComment(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
 		return
 	}
-
-	article, err := s.dbArticleByID(r.Context(), docID)
-	if err != nil {
-		writeJSONError(w, http.StatusNotFound, "not_found", "Документ не найден")
+	if s.commentRepo == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "service_unavailable", "Сервис комментариев недоступен")
 		return
 	}
 
+	article, err := s.dbArticleByID(r.Context(), docID)
+	if err != nil || !s.commentDocumentInActorOrganization(r, article) {
+		writeJSONError(w, http.StatusNotFound, "not_found", "Документ не найден")
+		return
+	}
 	if !s.canViewArticle(r.Context(), u, *article) {
 		writeJSONError(w, http.StatusForbidden, "forbidden", "Нет прав для добавления комментариев к этому документу")
 		return
@@ -100,6 +101,21 @@ func (s *Server) apiCreateComment(w http.ResponseWriter, r *http.Request) {
 	if req.Body == "" {
 		writeJSONError(w, http.StatusBadRequest, "empty_body", "Текст комментария не может быть пустым")
 		return
+	}
+	if req.ParentID != nil {
+		parent, err := s.commentRepo.GetCommentByID(r.Context(), *req.ParentID)
+		if errors.Is(err, repository.ErrNotFound) {
+			writeJSONError(w, http.StatusBadRequest, "invalid_parent", "Родительский комментарий не найден")
+			return
+		}
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "database_error", "Не удалось проверить родительский комментарий")
+			return
+		}
+		if parent.DocumentID != docID {
+			writeJSONError(w, http.StatusConflict, "invalid_parent", "Родительский комментарий принадлежит другому документу")
+			return
+		}
 	}
 
 	comment := domain.Comment{
@@ -121,6 +137,10 @@ func (s *Server) apiCreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.commentRepo.CreateComment(r.Context(), &comment); err != nil {
+		if errors.Is(err, repository.ErrConflict) || errors.Is(err, repository.ErrNotFound) {
+			writeJSONError(w, http.StatusConflict, "invalid_parent", "Некорректная связь комментариев")
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "database_error", "Не удалось сохранить комментарий")
 		return
 	}
@@ -138,8 +158,22 @@ func (s *Server) apiResolveComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	u := userFrom(r.Context())
+	if u == nil {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
+		return
+	}
 	if s.commentRepo == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "service_unavailable", "Сервис комментариев недоступен")
+		return
+	}
+
+	comment, article, ok := s.authorizedCommentMutationContext(w, r, u, commentID)
+	if !ok {
+		return
+	}
+	if comment.AuthorID != u.ID && !s.canEditDocument(r.Context(), u, article.ID, article.OwnerID, article.Visibility) {
+		writeJSONError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для закрытия комментария")
 		return
 	}
 
@@ -169,17 +203,25 @@ func (s *Server) apiDeleteComment(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
 		return
 	}
-
 	if s.commentRepo == nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "service_unavailable", "Сервис комментариев недоступен")
 		return
 	}
 
-	authorID := u.ID
-	if u.Role == "admin" {
-		authorID = 0 // Admin can delete any comment
+	comment, article, ok := s.authorizedCommentMutationContext(w, r, u, commentID)
+	if !ok {
+		return
+	}
+	canModerate := s.canEditDocument(r.Context(), u, article.ID, article.OwnerID, article.Visibility)
+	if comment.AuthorID != u.ID && !canModerate {
+		writeJSONError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для удаления комментария")
+		return
 	}
 
+	authorID := u.ID
+	if canModerate {
+		authorID = 0
+	}
 	if err := s.commentRepo.DeleteComment(r.Context(), commentID, authorID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			writeJSONError(w, http.StatusNotFound, "not_found", "Комментарий не найден")
@@ -193,12 +235,42 @@ func (s *Server) apiDeleteComment(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": "deleted"})
 }
 
+func (s *Server) authorizedCommentMutationContext(w http.ResponseWriter, r *http.Request, u *User, commentID int64) (*domain.Comment, *Article, bool) {
+	comment, err := s.commentRepo.GetCommentByID(r.Context(), commentID)
+	if errors.Is(err, repository.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "not_found", "Комментарий не найден")
+		return nil, nil, false
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "database_error", "Не удалось загрузить комментарий")
+		return nil, nil, false
+	}
+	article, err := s.dbArticleByID(r.Context(), comment.DocumentID)
+	if err != nil || !s.commentDocumentInActorOrganization(r, article) {
+		writeJSONError(w, http.StatusNotFound, "not_found", "Комментарий не найден")
+		return nil, nil, false
+	}
+	if !s.canViewArticle(r.Context(), u, *article) {
+		writeJSONError(w, http.StatusForbidden, "forbidden", "Нет доступа к комментариям этого документа")
+		return nil, nil, false
+	}
+	return comment, article, true
+}
+
+func (s *Server) commentDocumentInActorOrganization(r *http.Request, article *Article) bool {
+	if article == nil {
+		return false
+	}
+	actor := s.actorFrom(r)
+	return actor.UserID > 0 && actor.OrganizationID > 0 && article.OrganizationID == actor.OrganizationID
+}
+
 func (s *Server) dbArticleByID(ctx context.Context, id int64) (*Article, error) {
 	var a Article
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, slug, title, status, content, visibility, updated_at, coalesce(owner_id, 0), space_id
+		SELECT id, organization_id, slug, title, status, content, visibility, updated_at, coalesce(owner_id, 0), space_id
 		FROM articles WHERE id = ? AND deleted_at IS NULL
-	`, id).Scan(&a.ID, &a.Slug, &a.Title, &a.Status, &a.Content, &a.Visibility, &a.UpdatedAt, &a.OwnerID, &a.SpaceID)
+	`, id).Scan(&a.ID, &a.OrganizationID, &a.Slug, &a.Title, &a.Status, &a.Content, &a.Visibility, &a.UpdatedAt, &a.OwnerID, &a.SpaceID)
 	if err != nil {
 		return nil, err
 	}
