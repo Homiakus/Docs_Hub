@@ -190,17 +190,37 @@ func (a *SecurityAdapter) ReadWorkspaceScope(ctx context.Context, actor applicat
 	if err != nil {
 		return empty, err
 	}
-	defer projectRows.Close()
 
+	// db.Open intentionally serializes SQLite through one connection. Do not
+	// execute nested authorization queries while projectRows owns that sole
+	// connection; materialize the candidates first, close rows, then evaluate
+	// explicit grants. This keeps the single-connection invariant and avoids
+	// a self-deadlock under restricted-project scope resolution.
+	type projectCandidate struct {
+		id   int64
+		wsID string
+		mode domain.ProjectAccessMode
+	}
+	projects := make([]projectCandidate, 0, 16)
 	for projectRows.Next() {
-		var projectID int64
-		var wsID, rawMode string
-		if err := projectRows.Scan(&projectID, &wsID, &rawMode); err != nil {
+		var candidate projectCandidate
+		var rawMode string
+		if err := projectRows.Scan(&candidate.id, &candidate.wsID, &rawMode); err != nil {
+			projectRows.Close()
 			return empty, err
 		}
-		mode := domain.ProjectAccessMode(rawMode)
-		if mode == domain.ProjectAccessRestricted && role != "admin" {
-			allowed, err := a.hasExplicitProjectGrant(ctx, actor.UserID, actor.OrganizationID, projectID)
+		candidate.mode = domain.ProjectAccessMode(rawMode)
+		projects = append(projects, candidate)
+	}
+	if err := projectRows.Err(); err != nil {
+		projectRows.Close()
+		return empty, err
+	}
+	projectRows.Close()
+
+	for _, project := range projects {
+		if project.mode == domain.ProjectAccessRestricted && role != "admin" {
+			allowed, err := a.hasExplicitProjectGrant(ctx, actor.UserID, actor.OrganizationID, project.id)
 			if err != nil {
 				return empty, err
 			}
@@ -208,10 +228,7 @@ func (a *SecurityAdapter) ReadWorkspaceScope(ctx context.Context, actor applicat
 				continue
 			}
 		}
-		workspaceIDs = append(workspaceIDs, wsID)
-	}
-	if err := projectRows.Err(); err != nil {
-		return empty, err
+		workspaceIDs = append(workspaceIDs, project.wsID)
 	}
 	return repository.WorkspaceAccessScope{WorkspaceIDs: workspaceIDs}, nil
 }
