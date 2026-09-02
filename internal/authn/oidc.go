@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
 
 	"github.com/homiakus/docshub-next/internal/domain"
 )
@@ -32,22 +34,35 @@ type OIDCProvider interface {
 }
 
 type OIDCAuthService struct {
-	cfg OIDCConfig
+	cfg    OIDCConfig
+	random io.Reader
 }
 
 func NewOIDCAuthService(cfg OIDCConfig) *OIDCAuthService {
-	return &OIDCAuthService{cfg: cfg}
+	return &OIDCAuthService{cfg: cfg, random: rand.Reader}
 }
 
-func (s *OIDCAuthService) GenerateStateAndNonce() (string, string) {
+func (s *OIDCAuthService) GenerateStateAndNonce() (string, string, error) {
+	reader := rand.Reader
+	if s != nil && s.random != nil {
+		reader = s.random
+	}
+
 	bState := make([]byte, 24)
+	if _, err := io.ReadFull(reader, bState); err != nil {
+		return "", "", fmt.Errorf("oidc: generate state: %w", err)
+	}
 	bNonce := make([]byte, 24)
-	_, _ = rand.Read(bState)
-	_, _ = rand.Read(bNonce)
-	return base64.RawURLEncoding.EncodeToString(bState), base64.RawURLEncoding.EncodeToString(bNonce)
+	if _, err := io.ReadFull(reader, bNonce); err != nil {
+		return "", "", fmt.Errorf("oidc: generate nonce: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(bState), base64.RawURLEncoding.EncodeToString(bNonce), nil
 }
 
 func (s *OIDCAuthService) ProvisionUserFromClaims(ctx context.Context, claims *OIDCClaims) (*domain.User, error) {
+	if claims == nil {
+		return nil, errors.New("oidc: missing claims")
+	}
 	if claims.Email == "" && claims.Username == "" {
 		return nil, errors.New("oidc: invalid claims missing email/username")
 	}

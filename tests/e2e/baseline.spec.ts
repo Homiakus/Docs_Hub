@@ -55,7 +55,7 @@ async function login(page: Page) {
     await expectTouchTargets(page, '.login-form .form-control, .login-form .btn');
   }
   await page.getByLabel('Логин').fill('admin');
-  await page.getByLabel('Пароль').fill(adminPassword);
+  await page.locator('#loginPassword').fill(adminPassword);
   await page.getByRole('button', { name: 'Войти' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator('.app-shell')).toBeVisible();

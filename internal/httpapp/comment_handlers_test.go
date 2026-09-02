@@ -2,6 +2,7 @@ package httpapp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -94,5 +95,80 @@ func TestCommentAPIIntegration(t *testing.T) {
 	defer delRes.Body.Close()
 	if delRes.StatusCode != http.StatusOK {
 		t.Fatalf("delete comment status=%d want %d", delRes.StatusCode, http.StatusOK)
+	}
+}
+
+func TestCommentMutationCannotCrossOrganizationBoundary(t *testing.T) {
+	server, client, database := newTestApp(t)
+	defer server.Close()
+
+	csrf := loginTestUser(t, client, server.URL, database)
+	ctx := context.Background()
+
+	var adminID int64
+	if err := database.QueryRowContext(ctx, `SELECT id FROM users WHERE username = 'admin'`).Scan(&adminID); err != nil {
+		t.Fatalf("lookup admin: %v", err)
+	}
+
+	// A second tenant makes the compatibility principal resolver require an
+	// explicit organization membership. Give the authenticated admin exactly
+	// one membership (organization 1), then place the target comment in org 2.
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO organizations(id, name, slug, settings_json, created_at)
+		VALUES(2, 'Other Organization', 'other-org', '{}', datetime('now'));
+		INSERT INTO role_bindings(organization_id, scope_type, scope_id, subject_type, subject_id, role, created_at)
+		VALUES(1, 'organization', 1, 'user', ?, 'admin', datetime('now'));
+		INSERT INTO spaces(id, organization_id, parent_id, name, slug, description, default_visibility, created_at, updated_at)
+		VALUES(2, 2, NULL, 'Other Space', 'other-space', '', 'space_members', datetime('now'), datetime('now'));
+		INSERT INTO articles(id, organization_id, space_id, stable_key, slug, title, content, rendered_html, visibility, owner_id, status, created_at, updated_at)
+		VALUES(200, 2, 2, 'foreign-article', 'foreign-article', 'Foreign Article', 'secret', '<p>secret</p>', 'authenticated', ?, 'published', datetime('now'), datetime('now'));
+		INSERT INTO comments(id, document_id, author_id, body, status, created_at, updated_at)
+		VALUES(300, 200, ?, 'foreign comment', 'open', datetime('now'), datetime('now'));
+	`, adminID, adminID, adminID); err != nil {
+		t.Fatalf("seed cross-organization fixture: %v", err)
+	}
+
+	resolveReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/comments/300/resolve", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolveReq.Header.Set("X-CSRF-Token", csrf)
+	resolveRes, err := client.Do(resolveReq)
+	if err != nil {
+		t.Fatalf("resolve foreign comment: %v", err)
+	}
+	resolveRes.Body.Close()
+	if resolveRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("resolve foreign comment status=%d want %d", resolveRes.StatusCode, http.StatusNotFound)
+	}
+
+	var status string
+	if err := database.QueryRowContext(ctx, `SELECT status FROM comments WHERE id = 300`).Scan(&status); err != nil {
+		t.Fatalf("read foreign comment after resolve attempt: %v", err)
+	}
+	if status != "open" {
+		t.Fatalf("foreign comment status=%q want open", status)
+	}
+
+	deleteReq, err := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/comments/300", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteReq.Header.Set("X-CSRF-Token", csrf)
+	deleteRes, err := client.Do(deleteReq)
+	if err != nil {
+		t.Fatalf("delete foreign comment: %v", err)
+	}
+	deleteRes.Body.Close()
+	if deleteRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete foreign comment status=%d want %d", deleteRes.StatusCode, http.StatusNotFound)
+	}
+
+	var count int
+	if err := database.QueryRowContext(ctx, `SELECT count(*) FROM comments WHERE id = 300 AND deleted_at IS NULL`).Scan(&count); err != nil {
+		t.Fatalf("verify foreign comment retained: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("foreign comment was mutated or deleted, count=%d", count)
 	}
 }

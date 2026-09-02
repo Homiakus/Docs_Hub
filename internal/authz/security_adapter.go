@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/homiakus/docshub-next/internal/application"
 	"github.com/homiakus/docshub-next/internal/db"
@@ -13,26 +12,23 @@ import (
 	"github.com/homiakus/docshub-next/internal/repository"
 )
 
-// SecurityAdapter bridges Docs_Hub application security ports with the host
-// persistence and authorization subsystem, maintaining strict separation between
-// application services, repositories, and external security SDKs.
+// SecurityAdapter is the compatibility bridge between Docs_Hub application
+// security ports and the legacy local ACL tables. SecureAccess remains the
+// target authority; this adapter deliberately fails closed once more than one
+// Organization exists unless the actor has an explicit organization-scoped
+// role binding.
 type SecurityAdapter struct {
 	db       *db.DB
 	fallback Authorizer
-
-	mu         sync.RWMutex
-	accessMode map[string]domain.ProjectAccessMode
 }
 
 func NewSecurityAdapter(database *db.DB) *SecurityAdapter {
-	return &SecurityAdapter{
-		db:         database,
-		fallback:   New(),
-		accessMode: make(map[string]domain.ProjectAccessMode),
-	}
+	return &SecurityAdapter{db: database, fallback: New()}
 }
 
-// EnsureDomainWorkspace generates or returns the authoritative security workspace binding for a Domain.
+// EnsureDomainWorkspace returns the deterministic compatibility binding for a
+// Domain only after proving the actor belongs to the requested Organization and
+// may manage workspaces there.
 func (a *SecurityAdapter) EnsureDomainWorkspace(ctx context.Context, actor application.WorkspaceActor, req application.DomainWorkspaceRequest) (string, error) {
 	if actor.UserID <= 0 || actor.OrganizationID <= 0 || actor.OrganizationID != req.OrganizationID {
 		return "", application.ErrOrganizationBoundary
@@ -40,12 +36,22 @@ func (a *SecurityAdapter) EnsureDomainWorkspace(ctx context.Context, actor appli
 	if strings.TrimSpace(req.StableKey) == "" {
 		return "", fmt.Errorf("%w: missing stable key", application.ErrInvalidCommand)
 	}
-
-	wsID := fmt.Sprintf("ws_dom_%d_%s", req.OrganizationID, req.StableKey)
-	return wsID, nil
+	if err := a.requireOrganizationMembership(ctx, actor); err != nil {
+		return "", err
+	}
+	role, err := a.activeUserRole(ctx, actor.UserID)
+	if err != nil {
+		return "", err
+	}
+	if err := roleAllowsWorkspacePermission(role, application.WorkspacePermissionManage); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ws_dom_%d_%s", req.OrganizationID, req.StableKey), nil
 }
 
-// EnsureProjectWorkspace generates or returns the authoritative security workspace binding for a Project.
+// EnsureProjectWorkspace proves access to the parent Domain first. The returned
+// stable identifier is a compatibility binding until SecureAccess provisioning
+// is wired into the composition root.
 func (a *SecurityAdapter) EnsureProjectWorkspace(ctx context.Context, actor application.WorkspaceActor, req application.ProjectWorkspaceRequest) (string, error) {
 	if actor.UserID <= 0 || actor.OrganizationID <= 0 || actor.OrganizationID != req.OrganizationID {
 		return "", application.ErrOrganizationBoundary
@@ -53,130 +59,325 @@ func (a *SecurityAdapter) EnsureProjectWorkspace(ctx context.Context, actor appl
 	if strings.TrimSpace(req.ParentWorkspaceID) == "" || strings.TrimSpace(req.StableKey) == "" {
 		return "", fmt.Errorf("%w: missing parent workspace or stable key", application.ErrInvalidCommand)
 	}
-
-	wsID := fmt.Sprintf("ws_prj_%d_%s", req.OrganizationID, req.StableKey)
-	a.mu.Lock()
-	a.accessMode[wsID] = req.AccessMode
-	a.mu.Unlock()
-
-	return wsID, nil
+	if err := a.RequireWorkspacePermission(ctx, actor, req.ParentWorkspaceID, application.WorkspacePermissionManage); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ws_prj_%d_%s", req.OrganizationID, req.StableKey), nil
 }
 
-// RequireWorkspacePermission checks whether the actor has the required permission in the target workspace.
+// RequireWorkspacePermission verifies three independent invariants before the
+// legacy role can grant anything: active user, organization membership, and
+// workspace ownership by that Organization. Restricted Projects additionally
+// require an explicit project grant unless the actor is an administrator.
 func (a *SecurityAdapter) RequireWorkspacePermission(ctx context.Context, actor application.WorkspaceActor, workspaceID string, permission application.WorkspacePermission) error {
-	if actor.UserID <= 0 || actor.OrganizationID <= 0 || strings.TrimSpace(workspaceID) == "" {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if actor.UserID <= 0 || actor.OrganizationID <= 0 || workspaceID == "" || a.db == nil {
 		return ErrForbidden
 	}
-
-	// Verify user exists and belongs to the organization
-	if a.db != nil {
-		var role string
-		var isActive bool
-		err := a.db.QueryRowContext(ctx, `SELECT role, is_active FROM users WHERE id = ?`, actor.UserID).Scan(&role, &isActive)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return ErrForbidden
-			}
-			return err
-		}
-		if !isActive {
-			return ErrForbidden
-		}
-		// Admin has full management privileges
-		if role == "admin" {
-			return nil
-		}
-		// Editor has read and standard workspace rights
-		if role == "editor" {
-			return nil
-		}
-		// Reader only has read permission
-		if role == "reader" && permission == application.WorkspacePermissionRead {
-			return nil
-		}
-	}
-
-	return ErrForbidden
-}
-
-// SetProjectAccessMode sets the authoritative access mode on a Project security workspace.
-func (a *SecurityAdapter) SetProjectAccessMode(ctx context.Context, actor application.WorkspaceActor, workspaceID string, mode domain.ProjectAccessMode) error {
-	if err := a.RequireWorkspacePermission(ctx, actor, workspaceID, application.WorkspacePermissionManage); err != nil {
+	if err := a.requireOrganizationMembership(ctx, actor); err != nil {
 		return err
 	}
 
-	a.mu.Lock()
-	a.accessMode[workspaceID] = mode
-	a.mu.Unlock()
+	role, err := a.activeUserRole(ctx, actor.UserID)
+	if err != nil {
+		return err
+	}
+	kind, projectID, accessMode, err := a.lookupWorkspace(ctx, actor.OrganizationID, workspaceID)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return ErrForbidden
+		}
+		return err
+	}
+
+	if kind == "project" && accessMode == domain.ProjectAccessRestricted && role != "admin" {
+		allowed, err := a.hasExplicitProjectGrant(ctx, actor.UserID, actor.OrganizationID, projectID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return ErrForbidden
+		}
+	}
+	return roleAllowsWorkspacePermission(role, permission)
+}
+
+// SetProjectAccessMode persists the compatibility authority in SQLite. It is
+// intentionally not process-local: a restart must never widen access. The
+// application repository writes the same host projection after this call, so
+// the operation remains idempotent while SecureAccess integration is pending.
+func (a *SecurityAdapter) SetProjectAccessMode(ctx context.Context, actor application.WorkspaceActor, workspaceID string, mode domain.ProjectAccessMode) error {
+	if mode != domain.ProjectAccessInherit && mode != domain.ProjectAccessRestricted {
+		return fmt.Errorf("%w: invalid project access mode", application.ErrInvalidCommand)
+	}
+	if err := a.RequireWorkspacePermission(ctx, actor, workspaceID, application.WorkspacePermissionManage); err != nil {
+		return err
+	}
+	result, err := a.db.ExecContext(ctx, `
+		UPDATE spaces
+		SET access_mode = ?, updated_at = datetime('now')
+		WHERE security_workspace_id = ?
+		  AND domain_id IN (SELECT id FROM domains WHERE organization_id = ?)
+	`, string(mode), strings.TrimSpace(workspaceID), actor.OrganizationID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrForbidden
+	}
 	return nil
 }
 
-// ReadWorkspaceScope determines all security workspace IDs visible to the actor in SQL queries.
+// ReadWorkspaceScope returns only workspaces that are visible before the query
+// layer performs ranking, aggregation, or LIMIT. In a restricted Project,
+// non-admin users need an explicit space/project grant.
 func (a *SecurityAdapter) ReadWorkspaceScope(ctx context.Context, actor application.WorkspaceActor) (repository.WorkspaceAccessScope, error) {
-	if actor.UserID <= 0 || actor.OrganizationID <= 0 {
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, nil
+	empty := repository.WorkspaceAccessScope{WorkspaceIDs: nil}
+	if actor.UserID <= 0 || actor.OrganizationID <= 0 || a.db == nil {
+		return empty, nil
 	}
-
-	if a.db == nil {
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, nil
-	}
-
-	var role string
-	var isActive bool
-	err := a.db.QueryRowContext(ctx, `SELECT role, is_active FROM users WHERE id = ?`, actor.UserID).Scan(&role, &isActive)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, nil
+	if err := a.requireOrganizationMembership(ctx, actor); err != nil {
+		if err == ErrForbidden {
+			return empty, nil
 		}
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, err
+		return empty, err
 	}
-	if !isActive {
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, nil
+	role, err := a.activeUserRole(ctx, actor.UserID)
+	if err != nil {
+		if err == ErrForbidden {
+			return empty, nil
+		}
+		return empty, err
 	}
 
-	// For admin/editor, return all active domain and project workspaces in the organization
-	var workspaceIDs []string
-
-	// 1. Fetch domain workspace IDs
-	rows, err := a.db.QueryContext(ctx, `
-		SELECT security_workspace_id FROM domains 
-		WHERE organization_id = ? AND security_workspace_id IS NOT NULL AND security_workspace_id <> ''
+	workspaceIDs := make([]string, 0, 16)
+	domainRows, err := a.db.QueryContext(ctx, `
+		SELECT security_workspace_id
+		FROM domains
+		WHERE organization_id = ?
+		  AND security_workspace_id IS NOT NULL
+		  AND security_workspace_id <> ''
 	`, actor.OrganizationID)
 	if err != nil {
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, err
+		return empty, err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
+	for domainRows.Next() {
 		var wsID string
-		if err := rows.Scan(&wsID); err == nil && wsID != "" {
-			workspaceIDs = append(workspaceIDs, wsID)
+		if err := domainRows.Scan(&wsID); err != nil {
+			domainRows.Close()
+			return empty, err
 		}
+		workspaceIDs = append(workspaceIDs, wsID)
 	}
+	if err := domainRows.Err(); err != nil {
+		domainRows.Close()
+		return empty, err
+	}
+	domainRows.Close()
 
-	// 2. Fetch project workspace IDs
-	projRows, err := a.db.QueryContext(ctx, `
-		SELECT s.security_workspace_id 
+	projectRows, err := a.db.QueryContext(ctx, `
+		SELECT s.id, s.security_workspace_id, s.access_mode
 		FROM spaces s
-		JOIN domains d ON s.domain_id = d.id
-		WHERE d.organization_id = ? AND s.security_workspace_id IS NOT NULL AND s.security_workspace_id <> ''
+		JOIN domains d ON d.id = s.domain_id
+		WHERE d.organization_id = ?
+		  AND s.security_workspace_id IS NOT NULL
+		  AND s.security_workspace_id <> ''
 	`, actor.OrganizationID)
 	if err != nil {
-		return repository.WorkspaceAccessScope{WorkspaceIDs: nil}, err
+		return empty, err
 	}
-	defer projRows.Close()
 
-	for projRows.Next() {
-		var wsID string
-		if err := projRows.Scan(&wsID); err == nil && wsID != "" {
-			workspaceIDs = append(workspaceIDs, wsID)
+	// db.Open intentionally serializes SQLite through one connection. Do not
+	// execute nested authorization queries while projectRows owns that sole
+	// connection; materialize the candidates first, close rows, then evaluate
+	// explicit grants. This keeps the single-connection invariant and avoids
+	// a self-deadlock under restricted-project scope resolution.
+	type projectCandidate struct {
+		id   int64
+		wsID string
+		mode domain.ProjectAccessMode
+	}
+	projects := make([]projectCandidate, 0, 16)
+	for projectRows.Next() {
+		var candidate projectCandidate
+		var rawMode string
+		if err := projectRows.Scan(&candidate.id, &candidate.wsID, &rawMode); err != nil {
+			projectRows.Close()
+			return empty, err
 		}
+		candidate.mode = domain.ProjectAccessMode(rawMode)
+		projects = append(projects, candidate)
 	}
+	if err := projectRows.Err(); err != nil {
+		projectRows.Close()
+		return empty, err
+	}
+	projectRows.Close()
 
+	for _, project := range projects {
+		if project.mode == domain.ProjectAccessRestricted && role != "admin" {
+			allowed, err := a.hasExplicitProjectGrant(ctx, actor.UserID, actor.OrganizationID, project.id)
+			if err != nil {
+				return empty, err
+			}
+			if !allowed {
+				continue
+			}
+		}
+		workspaceIDs = append(workspaceIDs, project.wsID)
+	}
 	return repository.WorkspaceAccessScope{WorkspaceIDs: workspaceIDs}, nil
 }
 
-// Check implements authz.Authorizer interface.
+func (a *SecurityAdapter) requireOrganizationMembership(ctx context.Context, actor application.WorkspaceActor) error {
+	if a.db == nil || actor.UserID <= 0 || actor.OrganizationID <= 0 {
+		return ErrForbidden
+	}
+	if _, err := a.activeUserRole(ctx, actor.UserID); err != nil {
+		return err
+	}
+
+	// Safe legacy compatibility: with exactly one Organization there is no
+	// cross-tenant boundary to cross, so existing global users remain usable.
+	var orgCount int
+	if err := a.db.QueryRowContext(ctx, `SELECT count(*) FROM organizations`).Scan(&orgCount); err != nil {
+		return err
+	}
+	if orgCount == 1 {
+		var onlyOrgID int64
+		if err := a.db.QueryRowContext(ctx, `SELECT id FROM organizations LIMIT 1`).Scan(&onlyOrgID); err != nil {
+			return err
+		}
+		if onlyOrgID == actor.OrganizationID {
+			return nil
+		}
+		return ErrForbidden
+	}
+
+	var one int
+	err := a.db.QueryRowContext(ctx, `
+		SELECT 1
+		FROM role_bindings rb
+		WHERE rb.organization_id = ?
+		  AND (
+			(rb.subject_type = 'user' AND rb.subject_id = ?)
+			OR
+			(rb.subject_type = 'group' AND rb.subject_id IN (
+				SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ?
+			))
+		  )
+		LIMIT 1
+	`, actor.OrganizationID, actor.UserID, actor.UserID).Scan(&one)
+	if errorsIsNoRows(err) {
+		return ErrForbidden
+	}
+	return err
+}
+
+func (a *SecurityAdapter) activeUserRole(ctx context.Context, userID int64) (string, error) {
+	if a.db == nil || userID <= 0 {
+		return "", ErrForbidden
+	}
+	var role string
+	var active bool
+	err := a.db.QueryRowContext(ctx, `SELECT role, is_active FROM users WHERE id = ?`, userID).Scan(&role, &active)
+	if errorsIsNoRows(err) {
+		return "", ErrForbidden
+	}
+	if err != nil {
+		return "", err
+	}
+	if !active {
+		return "", ErrForbidden
+	}
+	return role, nil
+}
+
+func roleAllowsWorkspacePermission(role string, permission application.WorkspacePermission) error {
+	switch role {
+	case "admin", "editor":
+		return nil
+	case "reader":
+		if permission == application.WorkspacePermissionRead {
+			return nil
+		}
+	}
+	return ErrForbidden
+}
+
+func (a *SecurityAdapter) lookupWorkspace(ctx context.Context, organizationID int64, workspaceID string) (kind string, projectID int64, accessMode domain.ProjectAccessMode, err error) {
+	var rawMode string
+	err = a.db.QueryRowContext(ctx, `
+		SELECT kind, project_id, access_mode
+		FROM (
+			SELECT 'domain' AS kind, 0 AS project_id, 'inherit' AS access_mode
+			FROM domains
+			WHERE organization_id = ? AND security_workspace_id = ?
+			UNION ALL
+			SELECT 'project' AS kind, s.id AS project_id, s.access_mode
+			FROM spaces s
+			JOIN domains d ON d.id = s.domain_id
+			WHERE d.organization_id = ? AND s.security_workspace_id = ?
+		)
+		LIMIT 1
+	`, organizationID, workspaceID, organizationID, workspaceID).Scan(&kind, &projectID, &rawMode)
+	if err != nil {
+		return "", 0, "", err
+	}
+	return kind, projectID, domain.ProjectAccessMode(rawMode), nil
+}
+
+func (a *SecurityAdapter) hasExplicitProjectGrant(ctx context.Context, userID, organizationID, projectID int64) (bool, error) {
+	var one int
+	err := a.db.QueryRowContext(ctx, `
+		SELECT 1
+		WHERE EXISTS (
+			SELECT 1
+			FROM space_members sm
+			WHERE sm.space_id = ?
+			  AND (
+				(sm.subject_type = 'user' AND sm.subject_id = ?)
+				OR
+				(sm.subject_type = 'group' AND sm.subject_id IN (
+					SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ?
+				))
+			  )
+		)
+		OR EXISTS (
+			SELECT 1
+			FROM role_bindings rb
+			WHERE rb.organization_id = ?
+			  AND rb.scope_type = 'space'
+			  AND rb.scope_id = ?
+			  AND (
+				(rb.subject_type = 'user' AND rb.subject_id = ?)
+				OR
+				(rb.subject_type = 'group' AND rb.subject_id IN (
+					SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ?
+				))
+			  )
+		)
+	`, projectID, userID, userID, organizationID, projectID, userID, userID).Scan(&one)
+	if errorsIsNoRows(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func errorsIsNoRows(err error) bool {
+	return err == sql.ErrNoRows
+}
+
+// Check keeps legacy document authorization behavior while the remaining HTTP
+// paths are migrated to application services. New Domain/Project code must use
+// the organization-aware methods above.
 func (a *SecurityAdapter) Check(ctx context.Context, u *domain.User, action domain.Action, res Resource) error {
 	return a.fallback.Check(ctx, u, action, res)
 }

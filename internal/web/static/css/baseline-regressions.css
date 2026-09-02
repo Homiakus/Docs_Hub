@@ -30,11 +30,22 @@ html[data-theme="light"] {
   --text-tertiary: #666b78;
 }
 
+/* Admin is a semantic role, not a decorative accent sample. Accent text over
+ * a translucent accent background can fall below 4.5:1 (default indigo was
+ * 4.21:1), so keep the accent in the surface/border and use normal foreground
+ * text for a stable contrast guarantee across presets. */
+.badge-role.role-admin {
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+}
+
 @media (max-width: 900px) {
   /* WCAG 2.2 target-size baseline for primary touch controls. */
   .sidepanel .side-link,
   .mobile-nav-close,
   .mobile-nav-toggle,
+  .global-search,
   .top-actions .btn,
   .top-actions .icon-button,
   .editor-pane-switch button,
@@ -46,16 +57,98 @@ html[data-theme="light"] {
   .admin-section .btn,
   #graphSearch,
   #graphStatus,
-  .graph-toolbar-actions button {
+  .graph-toolbar-actions button,
+  .status-bar-button {
     min-height: 44px;
   }
 
   .mobile-nav-close,
   .mobile-nav-toggle,
+  .top-actions .btn,
   .top-actions .icon-button,
   .editor-toolbar button,
-  .graph-toolbar-actions button {
+  .graph-toolbar-actions button,
+  .status-bar-button {
     min-width: 44px;
+  }
+
+  .mobile-nav-close,
+  .mobile-nav-toggle,
+  .top-actions .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .global-search,
+  .top-actions {
+    min-width: 0;
+  }
+
+  /* The compact create action is icon-only on mobile, but its original 38px
+   * explicit width overrode the target-size baseline. */
+  .top-actions .btn {
+    width: 44px;
+  }
+
+  /* The desktop status bar contains three nowrap groups. On 390/412px
+   * viewports their min-content width enlarged document.scrollWidth even when
+   * the main page itself was responsive. Collapse it to the two actionable
+   * status groups and keep the appearance action touch-safe. */
+  .app-status-bar {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    height: auto;
+    gap: 8px;
+    padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
+  }
+
+  .status-bar-left,
+  .status-bar-right {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .status-bar-center,
+  .status-bar-left .status-bar-divider,
+  .status-bar-right .status-bar-divider,
+  .status-bar-right > .status-bar-item {
+    display: none;
+  }
+
+  .status-bar-left {
+    overflow: hidden;
+  }
+
+  #networkStatusItem {
+    flex: 0 0 auto;
+  }
+
+  #syncStatusItem {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  #syncStatusLabel {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .status-bar-right {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .status-bar-button {
+    width: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .status-bar-button > span {
+    display: none;
   }
 
   .admin-anchor-nav a {
@@ -65,6 +158,7 @@ html[data-theme="light"] {
 
   .graph-toolbar {
     flex-wrap: wrap;
+    min-width: 0;
   }
 
   .graph-search {
@@ -79,10 +173,12 @@ html[data-theme="light"] {
 
   .graph-toolbar select {
     min-height: 44px;
+    min-width: 0;
   }
 
   .graph-toolbar-actions {
     margin-left: 0;
+    max-width: 100%;
   }
 
   .pdf-head,
@@ -129,5 +225,76 @@ html[data-theme="light"] {
 
   .admin-row-form {
     overflow-x: visible;
+  }
+
+  /* Mobile editor is a vertical interaction flow. Using a one-column CSS grid
+   * together with hidden tabpanels, details and a fixed action bar produced
+   * overlapping paint layers in Chromium/WebKit. A block flow removes that
+   * ambiguity; explicit layers make settings/actions unambiguously clickable. */
+  .editor-workspace {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .editor-canvas,
+  .editor-settings {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .editor-canvas {
+    position: relative;
+    z-index: 1;
+  }
+
+  .editor-settings {
+    position: relative;
+    z-index: 2;
+    margin-top: 18px;
+  }
+
+  .editor-toolbar,
+  .editorgrid,
+  .editor-pane,
+  .preview-pane,
+  .preview,
+  .editor-pane textarea,
+  .title-field,
+  .dropzone,
+  .settings-fields {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .editor-toolbar {
+    overflow-x: clip;
+  }
+
+  .toolbar-group {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .title-field > *,
+  .dropzone > *,
+  .settings-fields > label,
+  .settings-fields .form-control {
+    min-width: 0;
+  }
+
+  .editor-mobile-actions {
+    z-index: 60;
+    max-width: calc(100vw - max(24px, env(safe-area-inset-left) + env(safe-area-inset-right)));
+    isolation: isolate;
+    pointer-events: none;
+  }
+
+  .editor-mobile-actions .btn {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
   }
 }

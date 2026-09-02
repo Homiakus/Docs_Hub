@@ -19,10 +19,7 @@ func (s *Server) actorFrom(r *http.Request) application.WorkspaceActor {
 	if u == nil {
 		return application.WorkspaceActor{}
 	}
-	return application.WorkspaceActor{
-		UserID:         u.ID,
-		OrganizationID: 1,
-	}
+	return s.resolveWorkspaceActor(r.Context(), u.ID)
 }
 
 type domainDTO struct {
@@ -310,4 +307,3 @@ func (s *Server) showDomainPage(w http.ResponseWriter, r *http.Request) {
 		Projects:      projects,
 	})
 }
-

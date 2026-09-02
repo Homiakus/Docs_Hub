@@ -2,11 +2,13 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/homiakus/docshub-next/internal/db"
 	"github.com/homiakus/docshub-next/internal/domain"
+	"github.com/homiakus/docshub-next/internal/repository"
 )
 
 func setupCommentTestDB(t *testing.T) *db.DB {
@@ -27,7 +29,8 @@ func setupCommentTestDB(t *testing.T) *db.DB {
 
 		INSERT OR IGNORE INTO articles(id, organization_id, space_id, stable_key, slug, title, content, rendered_html, visibility, owner_id, status, created_at, updated_at)
 		VALUES
-		(100, 1, 1, 'art-100', 'design-spec', 'Design Spec', 'Content', '<p>Content</p>', 'authenticated', 1, 'published', datetime('now'), datetime('now'));
+		(100, 1, 1, 'art-100', 'design-spec', 'Design Spec', 'Content', '<p>Content</p>', 'authenticated', 1, 'published', datetime('now'), datetime('now')),
+		(101, 1, 1, 'art-101', 'other-spec', 'Other Spec', 'Other', '<p>Other</p>', 'authenticated', 1, 'published', datetime('now'), datetime('now'));
 	`)
 	if err != nil {
 		t.Fatalf("seed db: %v", err)
@@ -41,7 +44,6 @@ func TestCommentRepositoryLifecycle(t *testing.T) {
 	database := setupCommentTestDB(t)
 	repo := NewCommentRepository(database)
 
-	// 1. Create root comment
 	root := &domain.Comment{
 		DocumentID:     100,
 		AuthorID:       2,
@@ -61,7 +63,14 @@ func TestCommentRepositoryLifecycle(t *testing.T) {
 		t.Fatalf("expected non-zero comment ID")
 	}
 
-	// 2. Create reply comment
+	loaded, err := repo.GetCommentByID(ctx, root.ID)
+	if err != nil {
+		t.Fatalf("get comment by id: %v", err)
+	}
+	if loaded.DocumentID != 100 || loaded.AuthorID != 2 {
+		t.Fatalf("loaded comment mismatch: %+v", loaded)
+	}
+
 	reply := &domain.Comment{
 		DocumentID:     100,
 		AuthorID:       1,
@@ -73,7 +82,6 @@ func TestCommentRepositoryLifecycle(t *testing.T) {
 		t.Fatalf("create reply comment: %v", err)
 	}
 
-	// 3. Query comments by document
 	comments, err := repo.GetCommentsByDocument(ctx, 100)
 	if err != nil {
 		t.Fatalf("get comments: %v", err)
@@ -88,7 +96,6 @@ func TestCommentRepositoryLifecycle(t *testing.T) {
 		t.Fatalf("quote mismatch: %s", comments[0].QuoteExact)
 	}
 
-	// 4. Resolve thread
 	if err := repo.ResolveComment(ctx, root.ID); err != nil {
 		t.Fatalf("resolve comment: %v", err)
 	}
@@ -98,5 +105,28 @@ func TestCommentRepositoryLifecycle(t *testing.T) {
 	}
 	if resolved[0].Status != domain.CommentStatusResolved {
 		t.Fatalf("expected resolved status, got %s", resolved[0].Status)
+	}
+}
+
+func TestCreateCommentRejectsCrossDocumentParent(t *testing.T) {
+	ctx := context.Background()
+	database := setupCommentTestDB(t)
+	repo := NewCommentRepository(database)
+
+	parent := &domain.Comment{DocumentID: 100, AuthorID: 1, Body: "parent"}
+	if err := repo.CreateComment(ctx, parent); err != nil {
+		t.Fatal(err)
+	}
+	child := &domain.Comment{DocumentID: 101, AuthorID: 2, ParentID: &parent.ID, Body: "invalid child"}
+	if err := repo.CreateComment(ctx, child); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("cross-document parent err=%v, want ErrConflict", err)
+	}
+
+	comments, err := repo.GetCommentsByDocument(ctx, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(comments) != 0 {
+		t.Fatalf("cross-document child must not be persisted: %+v", comments)
 	}
 }
