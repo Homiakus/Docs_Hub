@@ -191,6 +191,33 @@ func TestSessionManagerTouchesActiveSession(t *testing.T) {
 	}
 }
 
+func TestSessionTouchDoesNotExtendAbsoluteLifetime(t *testing.T) {
+	ctx := context.Background()
+	database := setupSessionTestDB(t)
+	mgr := NewSessionManager(database, "test-super-secret-key-123456789012")
+
+	cookieVal, _, expiresAt, err := mgr.CreateSession(ctx, 1, "127.0.0.1", "absolute-lifetime-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := splitTwo(cookieVal, ".")
+	old := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	if _, err := database.ExecContext(ctx, `UPDATE sessions SET last_seen_at=? WHERE id=?`, old, parts[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	if user, _, err := mgr.ValidateSession(ctx, cookieVal); err != nil || user == nil {
+		t.Fatalf("validate active session: user=%v err=%v", user, err)
+	}
+	var storedExpiresAt string
+	if err := database.QueryRowContext(ctx, `SELECT expires_at FROM sessions WHERE id=?`, parts[0]).Scan(&storedExpiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if storedExpiresAt != expiresAt {
+		t.Fatalf("touch extended absolute lifetime: before=%s after=%s", expiresAt, storedExpiresAt)
+	}
+}
+
 func TestSessionManagerFailsClosedWhenEntropyUnavailable(t *testing.T) {
 	ctx := context.Background()
 	database := setupSessionTestDB(t)
@@ -210,5 +237,18 @@ func TestSessionManagerFailsClosedWhenEntropyUnavailable(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("failed entropy must not persist a session, count=%d", count)
+	}
+}
+
+func TestHashTokenUsesHMACSHA256(t *testing.T) {
+	const want = "aa900acb34c6e64089ce061bb6e53053ecc0af1e03fd3a9aa63540d874843147"
+	if got := hashToken("token-value", "test-secret"); got != want {
+		t.Fatalf("hashToken()=%q want HMAC-SHA256 %q", got, want)
+	}
+	if tokenHashMatches(want, "different-token", "test-secret") {
+		t.Fatal("different token must not match stored HMAC")
+	}
+	if tokenHashMatches("not-hex", "token-value", "test-secret") {
+		t.Fatal("malformed stored token hash must fail closed")
 	}
 }

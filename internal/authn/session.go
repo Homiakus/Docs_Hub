@@ -2,9 +2,9 @@ package authn
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -101,8 +101,7 @@ func (s *SessionManager) ValidateSession(ctx context.Context, cookieValue string
 		return nil, "", err
 	}
 
-	expectedHash := hashToken(token, s.sessionSecret)
-	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(expectedHash)) != 1 {
+	if !tokenHashMatches(storedHash, token, s.sessionSecret) {
 		return nil, "", nil
 	}
 
@@ -170,9 +169,22 @@ func (s *SessionManager) randomString(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+func tokenMAC(token, secret string) []byte {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(token))
+	return mac.Sum(nil)
+}
+
 func hashToken(token, secret string) string {
-	h := sha256.Sum256([]byte(secret + ":" + token))
-	return hex.EncodeToString(h[:])
+	return hex.EncodeToString(tokenMAC(token, secret))
+}
+
+func tokenHashMatches(storedHash, token, secret string) bool {
+	storedMAC, err := hex.DecodeString(storedHash)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(storedMAC, tokenMAC(token, secret))
 }
 
 func boundedSessionText(value string, max int) string {
