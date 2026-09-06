@@ -106,3 +106,107 @@ The user interface is built on a **Neo-Swiss Editorial Grid System** utilizing v
 - **Design Tokens**: Centralized CSS custom properties for surfaces (`--surface-*`), typography scales (`--font-*`), and motion curves (`--ease-*`, `--motion-*`).
 - **Responsive Geometry**: Fluid container queries and `clamp()` calculations adapting flawlessly from $320\text{px}$ mobile screens to $3840\text{px}$ 4K displays.
 - **Theme & Accent Engine**: Perceptual Dark/Light themes with instant client-side switching and customizable accent palettes persisted via `localStorage`.
+
+---
+
+## 7. Enforced Architecture Boundaries
+
+The current remediation program is defined by `docs/DEEP_AUDIT_REMEDIATION_MASTER_PLAN_2026-08-27.md` and its active evidence addendum `docs/ARCHITECTURE_LEVERAGE_AND_FRAGILITY_AUDIT_2026-09-06.md`.
+
+The modular-monolith direction is retained. The goal is not to create more layers or services, but to make unsafe alternate execution paths impossible or mechanically detectable.
+
+### 7.1 Non-negotiable invariants
+
+1. **Trusted principal and tenant scope on every user operation.** A handler cannot invent or default the active organization/workspace. The principal is derived from trusted server-side identity/session state and organization membership is part of effective authorization.
+2. **One authorization path per resource operation.** Authentication alone is never sufficient for a resource mutation. Access scope is applied before search ranking, graph expansion, aggregation, activity ordering or `LIMIT`.
+3. **Transport is persistence-blind.** `internal/httpapp` parses transport input, resolves the trusted principal, invokes application services and translates results. It does not execute SQL or own business transactions.
+
+### 7.2 Target dependency direction
+
+```text
+HTTP / Web / Bot / future API
+            |
+            v
+      Trusted Principal
+            |
+            v
++----------------------------+
+| Application Use Cases      |
+| Document / Comment /       |
+| Search / Workflow Services |
++-------------+--------------+
+              |
+       Policy + Port Contracts
+              |
+       +------+-------+
+       |              |
+       v              v
+Security Authority     Repositories
+       |              |
+       +------+-------+
+              v
+        Persistence Adapter
+```
+
+Forbidden steady-state dependency direction:
+
+```text
+HTTP -> database/sql
+HTTP -> concrete SQLite repository
+HTTP -> duplicated ACL policy
+```
+
+### 7.3 Repository safety rule
+
+The default user-facing repository API must not expose unrestricted resource getters. Reads and writes that can be reached from a user request require an explicit scope/capability.
+
+Preferred shape:
+
+```go
+type ReadScope struct {
+    PrincipalID    int64
+    OrganizationID int64
+    WorkspaceIDs   []string
+}
+
+GetVisibleByID(ctx context.Context, scope ReadScope, id int64) (*domain.Article, error)
+```
+
+Unrestricted access, if needed for migrations/system jobs, belongs to a deliberately named system-only interface and is auditable.
+
+### 7.4 Application transaction ownership
+
+Transactions follow business invariants, not individual tables. A document save may need to update content, immutable revision history, links/search state and audit records atomically. The application service owns that transaction boundary through an explicit transaction/Unit-of-Work port.
+
+### 7.5 Security authority and caches
+
+Process-local maps and caches are never authoritative for access decisions. Security state must have a persistent/external source of truth; cache invalidation must be defined, and stale cache state may never widen permission.
+
+### 7.6 Architecture fitness functions
+
+The following properties are intended to become machine-enforced repository gates:
+
+```text
+FIT-001  internal/httpapp does not import database/sql.
+FIT-002  internal/httpapp does not call Query/Exec/BeginTx directly.
+FIT-003  protected user resource queries require trusted Principal/Scope.
+FIT-004  non-idempotent resource endpoints have negative authorization tests.
+FIT-005  activity/search/graph/backlinks scope data before ranking/LIMIT.
+FIT-006  applied migration content is immutable/checksummed.
+FIT-007  process restart does not change effective access permissions.
+FIT-008  fault injection cannot leave multi-write use cases partially committed.
+```
+
+Architecture conventions that are not expressed as tests or static checks are considered temporary controls.
+
+### 7.7 SQLite operating envelope
+
+SQLite remains the preferred storage engine for the single-binary deployment model until measurement proves otherwise. WAL, foreign keys and busy timeout are intentional. Connection serialization and write contention must be treated as an explicit capacity boundary rather than a reason for speculative migration.
+
+The project must maintain a reproducible benchmark for concurrent reads, autosave/search/audit writes and define p95 latency plus lock/busy error thresholds. A PostgreSQL adapter is justified when measured product requirements exceed that envelope, not before.
+
+### 7.8 Structural refactoring policy
+
+Refactoring uses a strangler approach. Complete vertical use cases are extracted from `httpapp.Server` one at a time (comments, document save/autosave, revisions, sessions, search, workflow/admin), while preserving the modular monolith.
+
+An extraction is complete only when the old bypass path is removed. Adding a service while keeping direct SQL/business logic in HTTP does not satisfy the architecture boundary.
